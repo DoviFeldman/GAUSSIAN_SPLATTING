@@ -15,7 +15,7 @@ a 3D scene made of ~1 million tiny colored blobs. You can orbit it in a browser 
 ## 👀 Just want to look at the 3D pirate ship?
 
 **Option A: online, nothing to install**
-Open **https://dovifeldman.github.io/GAUSSIAN_SPLATTING/tools/viewer/**
+Open **https://dovifeldman.github.io/GAUSSIAN_SPLATTING/**
 (it downloads the 40 MB scene, so give it a few seconds). Drag to orbit, right-drag or two fingers to pan, scroll or pinch to zoom.
 
 **Option B: on your own computer** (any Mac, Windows or Linux machine with a modern browser)
@@ -31,8 +31,9 @@ Open **https://dovifeldman.github.io/GAUSSIAN_SPLATTING/tools/viewer/**
 **Option C: any online splat viewer.** Drag [`example/pirate_ship.splat`](example/pirate_ship.splat) into
 [SuperSplat](https://superspl.at/editor), a free web editor from PlayCanvas. The file stays on your computer.
 
-The full-quality version (`splat_30000.ply`, 318 MB, includes view-dependent shine) is on the
-[Releases page](https://github.com/DoviFeldman/GAUSSIAN_SPLATTING/releases). You can drag it onto the viewer page too.
+The [Releases page](https://github.com/DoviFeldman/GAUSSIAN_SPLATTING/releases) also has:
+- `splat_30000.ply`: the full-quality splat (318 MB, includes view-dependent shine). Drag it onto the viewer page too.
+- `pirate_ship_video.mp4`: the original 30 s phone video, so you can run the whole pipeline yourself and compare.
 
 ---
 
@@ -41,14 +42,15 @@ The full-quality version (`splat_30000.ply`, 318 MB, includes view-dependent shi
 | Computer | Works? | Notes |
 |---|---|---|
 | **Apple Silicon Mac (M1–M5), 16 GB+ RAM** | ✅ Yes, this is what the scripts are built for | Tested on an M5 / 16 GB MacBook |
-| Apple Silicon Mac, 8 GB RAM | ⚠️ Probably | Close other apps, and use fewer splats (see [Tuning](#tuning)) |
+| Apple Silicon Mac, 8 GB RAM | ⚠️ Should work | Training used 4.5 GB here. Close other apps; if it struggles, use fewer splats (see [Tuning](#tuning)) |
 | Intel Mac | ❌ Not with these scripts | Brush has no prebuilt Intel-Mac build |
 | Windows / Linux PC with a gaming GPU (NVIDIA / AMD, 6 GB+ VRAM) | ✅ The same tools work | Brush and pycolmap both have Windows/Linux builds, but these `.sh` scripts are Mac-only. Run the Python steps by hand (below), or use WSL on Windows |
 | Laptop with only integrated graphics, or a Chromebook | ❌ Too slow / unsupported | Can still **view** splats in the browser |
 
-**RAM:** the whole pipeline peaked at about **RAM_PEAK** while training this example
-(127 frames at 900×1600, 1.35 million splats). On a Mac, RAM and graphics memory are shared, so
-**16 GB is comfortable and 8 GB is tight**.
+**RAM:** training is the hungry part. On this example (127 frames at 900×1600, 1.35 million splats) Brush
+peaked at **4.5 GB** (measured, GPU memory included); COLMAP needs far less. On a Mac, RAM and graphics memory are
+shared, so **16 GB is comfortable, and 8 GB works if you close Chrome and other big apps**. Bigger scenes or
+more frames need more.
 
 **Disk:** ~200 MB for the tools, plus ~2 GB per project (frames, COLMAP data, training checkpoints).
 You can delete everything except the final `.ply` afterwards.
