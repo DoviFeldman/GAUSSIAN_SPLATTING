@@ -1,0 +1,8 @@
+# local installs (recreate with ./setup.sh)
+venv/
+tools/brush/
+# your own projects (frames, COLMAP data, multi-GB checkpoints)
+projects/
+.claude/
+__pycache__/
+.DS_Store

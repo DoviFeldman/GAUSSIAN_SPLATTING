@@ -1,0 +1,115 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Splat Viewer</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111; overflow: hidden; font: 13px system-ui, sans-serif; color: #ddd; }
+  #hud { position: fixed; left: 10px; top: 10px; background: rgba(0,0,0,.55); padding: 8px 10px; border-radius: 6px; line-height: 1.5; max-width: calc(100% - 40px); }
+  body.drag::after { content: 'Drop a .splat / .ply / .ksplat file'; position: fixed; inset: 0; display: grid; place-items: center;
+                     font-size: 22px; background: rgba(0,0,0,.6); border: 3px dashed #aaa; }
+</style>
+<script type="importmap">
+  { "imports": { "three": "./lib/three.module.js" } }
+</script>
+</head>
+<body>
+<div id="hud">Loading the 3D scene… (40 MB, a few seconds)</div>
+<script type="module">
+// Local Gaussian splat viewer + camera-path recorder.
+//   index.html                               shows the example pirate ship
+//   ?scene=<.splat/.ply url>[&path=<json>]   shows your own splat (path = start view + "up")
+//   ?scene=...&path=...&record=1             renders every pose in the path JSON and POSTs
+//                                            each frame to serve.py, then /done (makes the mp4)
+// Drag & drop a .splat/.ply/.ksplat file onto the page to view it.
+import * as THREE from 'three';
+import * as GS from './lib/gaussian-splats-3d.module.js';
+
+const q = new URLSearchParams(location.search);
+const hud = document.getElementById('hud');
+const record = q.get('record') === '1';
+const sceneUrl = q.get('scene') || '../../example/pirate_ship.splat';
+const pathUrl = q.get('path') || (q.get('scene') ? null : '../../example/camera_path.json');
+const path = pathUrl ? await (await fetch(pathUrl)).json() : null;
+
+const W = record ? path.width : innerWidth, H = record ? path.height : innerHeight;
+const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+renderer.setPixelRatio(record ? 1 : devicePixelRatio);
+renderer.setSize(W, H);
+document.body.appendChild(renderer.domElement);
+const camera = new THREE.PerspectiveCamera(path ? path.fov : 50, W / H, 0.01, 1000);
+if (path) camera.up.fromArray(path.up);
+
+const viewer = new GS.Viewer({
+  renderer, camera,
+  selfDrivenMode: !record,  // when recording we drive update/render ourselves (works in hidden tabs)
+  useBuiltInControls: !record,
+  cameraUp: path ? path.up : [0, -1, 0],
+  initialCameraPosition: path ? path.frames[0].pos : [0, 0, 5],
+  initialCameraLookAt: path ? path.frames[0].look : [0, 0, 0],
+  sharedMemoryForWorkers: false,
+  sphericalHarmonicsDegree: 2,
+  antialiased: true,
+});
+await viewer.addSplatScene(sceneUrl, { progressiveLoad: false, showLoadingUI: false });
+if (!record) viewer.start();
+const tick = () => new Promise(r => setTimeout(r, 15));
+
+if (!record) {
+  const help = 'drag: orbit · right-drag / two fingers: pan · scroll / pinch: zoom · drop a file to open it';
+  hud.textContent = help;
+  addEventListener('resize', () => {
+    renderer.setSize(innerWidth, innerHeight);
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+  });
+  addEventListener('dragover', e => { e.preventDefault(); document.body.classList.add('drag'); });
+  addEventListener('dragleave', () => document.body.classList.remove('drag'));
+  addEventListener('drop', async e => {
+    e.preventDefault();
+    document.body.classList.remove('drag');
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    const ext = file.name.split('.').pop().toLowerCase();
+    const format = { splat: GS.SceneFormat.Splat, ksplat: GS.SceneFormat.KSplat, ply: GS.SceneFormat.Ply }[ext];
+    if (format === undefined) { hud.textContent = 'Unsupported file: ' + file.name; return; }
+    hud.textContent = 'Loading ' + file.name + '…';
+    await viewer.removeSplatScene(0, false);
+    await viewer.addSplatScene(URL.createObjectURL(file), { format, progressiveLoad: false, showLoadingUI: false });
+    hud.textContent = file.name + ' · ' + help;
+  });
+} else {
+  // warm-up: the very first render after load comes out black, so render pose 0 a few times first
+  for (let k = 0; k < 3; k++) {
+    camera.position.fromArray(path.frames[0].pos);
+    camera.lookAt(new THREE.Vector3().fromArray(path.frames[0].look));
+    viewer.update();
+    await viewer.runSplatSort(true, true);
+    while (viewer.sortRunning) await tick();
+    viewer.update();
+    viewer.render();
+    await new Promise(r => setTimeout(r, 300));
+  }
+  for (let i = 0; i < path.frames.length; i++) {
+    const f = path.frames[i];
+    camera.position.fromArray(f.pos);
+    camera.lookAt(new THREE.Vector3().fromArray(f.look));
+    camera.updateMatrixWorld();
+    // force a full depth sort for this pose and wait for it before capturing
+    viewer.update();
+    await viewer.runSplatSort(true, true);
+    while (viewer.sortRunning) await tick();
+    viewer.update();
+    viewer.render();
+    const blob = await new Promise(r => renderer.domElement.toBlob(r, 'image/png'));
+    await fetch(`/frame?i=${i}`, { method: 'POST', body: blob });
+    hud.textContent = `recording ${i + 1}/${path.frames.length}`;
+  }
+  const res = await (await fetch('/done', { method: 'POST' })).text();
+  hud.textContent = 'done: ' + res;
+  document.title = 'DONE';
+}
+</script>
+</body>
+</html>

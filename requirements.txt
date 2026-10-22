@@ -1,0 +1,4 @@
+# versions tested on macOS 26.4 / Apple M5 (Python 3.12)
+pycolmap==4.2.1
+opencv-python-headless==5.0.0.93
+numpy==2.5.4
