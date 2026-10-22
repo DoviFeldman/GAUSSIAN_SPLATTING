@@ -28,10 +28,9 @@ CHROME=$!
 
 N=$(python3 -c "import json;print(len(json.load(open('$P/camera_path.json'))['frames']))")
 echo "rendering $N frames of $REL ..."
-until [[ -f "$OUT" ]]; do
+until grep -q "frames ->" $PROF/server.log 2>/dev/null; do  # serve.py logs this once the mp4 is fully written
     sleep 3
     kill -0 $CHROME 2>/dev/null || { echo "chrome exited early"; cat $PROF/chrome.log | tail; exit 1; }
     printf "\r  %d/%d" $(ls $P/render_frames 2>/dev/null | wc -l) $N
 done
-sleep 1
 echo "\nvideo: $OUT"

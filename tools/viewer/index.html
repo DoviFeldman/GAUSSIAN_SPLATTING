@@ -52,7 +52,12 @@ const viewer = new GS.Viewer({
   sphericalHarmonicsDegree: 2,
   antialiased: true,
 });
-await viewer.addSplatScene(sceneUrl, { progressiveLoad: false, showLoadingUI: false });
+// Download the file ourselves: the library's own loader breaks when a server gzips it
+// (GitHub Pages does), because Content-Length no longer matches the real size.
+const ext = sceneUrl.split('?')[0].split('.').pop().toLowerCase();
+const formats = { splat: GS.SceneFormat.Splat, ksplat: GS.SceneFormat.KSplat, ply: GS.SceneFormat.Ply };
+const sceneBlob = await (await fetch(sceneUrl)).blob();
+await viewer.addSplatScene(URL.createObjectURL(sceneBlob), { format: formats[ext], progressiveLoad: false, showLoadingUI: false });
 if (!record) viewer.start();
 const tick = () => new Promise(r => setTimeout(r, 15));
 
@@ -71,8 +76,7 @@ if (!record) {
     document.body.classList.remove('drag');
     const file = e.dataTransfer.files[0];
     if (!file) return;
-    const ext = file.name.split('.').pop().toLowerCase();
-    const format = { splat: GS.SceneFormat.Splat, ksplat: GS.SceneFormat.KSplat, ply: GS.SceneFormat.Ply }[ext];
+    const format = formats[file.name.split('.').pop().toLowerCase()];
     if (format === undefined) { hud.textContent = 'Unsupported file: ' + file.name; return; }
     hud.textContent = 'Loading ' + file.name + '…';
     await viewer.removeSplatScene(0, false);
