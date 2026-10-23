@@ -7,3 +7,5 @@ projects/
 __pycache__/
 .DS_Store
 app_data/
+# local-only script (not part of the published repo)
+scripts/blender_splat_ellipsoids.py
