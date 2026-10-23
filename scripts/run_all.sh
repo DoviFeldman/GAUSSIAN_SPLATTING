@@ -19,7 +19,7 @@ echo "== 1/4 picking sharp frames"
 rm -rf $P/images
 $PY $ROOT/scripts/extract_frames.py $P/video.mp4 $P/images --frames 150
 
-echo "== 2/4 COLMAP camera solve (~10-15 min)"
+echo "== 2/4 COLMAP camera solve (~6-7 min)"
 $PY $ROOT/scripts/run_colmap.py $P 2>&1 | tee $P/colmap.log | grep -E "done|ready|could not"
 
 echo "== 3/4 training splat ($STEPS steps, ~60 min on M5)"

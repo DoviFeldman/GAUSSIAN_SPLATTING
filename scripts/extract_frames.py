@@ -55,6 +55,8 @@ def main():
                 saved.append((cur_s, save(cur_w, cur_f)))
             cur_w, cur_s, cur_f = w, -1.0, None
         s = sharpness(frame)
+        if idx % max(1, total // 50) == 0:
+            print(f"progress {idx / max(1, total):.3f}", flush=True)
         if s > cur_s:
             cur_s, cur_f = s, frame
         idx += 1

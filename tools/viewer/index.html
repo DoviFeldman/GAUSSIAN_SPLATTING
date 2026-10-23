@@ -64,11 +64,16 @@ const tick = () => new Promise(r => setTimeout(r, 15));
 if (!record) {
   const help = 'drag: orbit · right-drag / two fingers: pan · scroll / pinch: zoom · drop a file to open it';
   hud.textContent = help;
-  addEventListener('resize', () => {
+  // follow the page size (a ResizeObserver also catches iframe size changes that never fire 'resize')
+  const fit = () => {
+    if (!innerWidth || !innerHeight) return;
     renderer.setSize(innerWidth, innerHeight);
     camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
-  });
+    viewer.forceRenderNextFrame();
+  };
+  addEventListener('resize', fit);
+  new ResizeObserver(fit).observe(document.documentElement);
   addEventListener('dragover', e => { e.preventDefault(); document.body.classList.add('drag'); });
   addEventListener('dragleave', () => document.body.classList.remove('drag'));
   addEventListener('drop', async e => {

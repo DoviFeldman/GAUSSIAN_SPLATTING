@@ -7,6 +7,7 @@ nearly the same. Nearly-invisible splats are dropped too.
 usage: python ply_to_splat.py IN.ply OUT.splat [--min-opacity 0.02]
 """
 import argparse
+import os
 
 import numpy as np
 
@@ -28,17 +29,11 @@ def read_ply(path):
     return {p: data[:, i] for i, p in enumerate(props)}
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("ply")
-    ap.add_argument("out")
-    ap.add_argument("--min-opacity", type=float, default=0.02)
-    args = ap.parse_args()
-
-    v = read_ply(args.ply)
+def convert(ply, out, min_opacity=0.02):
+    v = read_ply(ply)
     alpha = 1 / (1 + np.exp(-v["opacity"]))
     scale = np.exp(np.stack([v["scale_0"], v["scale_1"], v["scale_2"]], 1))
-    keep = alpha >= args.min_opacity
+    keep = alpha >= min_opacity
     order = np.argsort(-(alpha * scale.prod(1))[keep])  # most important first
     idx = np.nonzero(keep)[0][order]
 
@@ -51,8 +46,18 @@ def main():
 
     rec = np.zeros(len(idx), dtype=[("pos", "<f4", 3), ("scale", "<f4", 3), ("rgba", "u1", 4), ("rot", "u1", 4)])
     rec["pos"], rec["scale"], rec["rgba"], rec["rot"] = pos[idx], scale[idx], rgba[idx], rot[idx]
-    rec.tofile(args.out)
-    print(f"{len(idx)}/{len(alpha)} splats -> {args.out} ({rec.nbytes / 1e6:.1f} MB)")
+    rec.tofile(out)
+    return len(idx), len(alpha)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("ply")
+    ap.add_argument("out")
+    ap.add_argument("--min-opacity", type=float, default=0.02)
+    args = ap.parse_args()
+    kept, total = convert(args.ply, args.out, args.min_opacity)
+    print(f"{kept}/{total} splats -> {args.out} ({os.path.getsize(args.out) / 1e6:.1f} MB)")
 
 
 if __name__ == "__main__":

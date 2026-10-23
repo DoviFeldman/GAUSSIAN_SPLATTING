@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Splat Studio</title>
+<link rel="icon" href="/app/ui/icon.png">
+<style>
+  :root {
+    --bg: #0e0f13; --panel: #171920; --panel2: #1f222b; --line: #2a2e39; --text: #e8e9ee; --muted: #9096a6;
+    --accent: #ff8a3d; --accent2: #ffb36b; --good: #4cc38a; --bad: #ff5d5d; --warn: #f5c451;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+               font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; }
+  button { font: inherit; color: inherit; cursor: pointer; border: 0; }
+  .app { display: flex; flex-direction: column; height: 100%; }
+
+  /* top bar + tabs */
+  .bar { display: flex; align-items: center; gap: 10px; padding: 0 14px; height: 52px; background: var(--panel);
+         border-bottom: 1px solid var(--line); flex-shrink: 0; }
+  .logo { display: flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: .2px; margin-right: 10px; white-space: nowrap; }
+  .logo img { width: 26px; height: 26px; border-radius: 7px; }
+  .tabs { display: flex; gap: 4px; overflow-x: auto; flex: 1; scrollbar-width: none; }
+  .tab { display: flex; align-items: center; gap: 8px; padding: 7px 10px 7px 14px; border-radius: 9px; background: transparent;
+         color: var(--muted); white-space: nowrap; max-width: 220px; }
+  .tab span { overflow: hidden; text-overflow: ellipsis; }
+  .tab:hover { background: var(--panel2); color: var(--text); }
+  .tab.active { background: var(--panel2); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+  .tab .x { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; color: var(--muted); font-size: 15px; line-height: 1; }
+  .tab .x:hover { background: #ffffff1a; color: var(--text); }
+  .tab .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.4s infinite; flex-shrink: 0; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .sys { font-size: 13px; color: var(--muted); white-space: nowrap; padding: 5px 10px; border-radius: 8px; background: var(--panel2); }
+  .sys b { color: var(--good); font-weight: 600; }
+  .sys.bad b { color: var(--bad); }
+
+  .views { flex: 1; position: relative; overflow: hidden; }
+  .view { position: absolute; inset: 0; overflow-y: auto; display: none; }
+  .view.active { display: block; }
+
+  /* home */
+  .home { max-width: 860px; margin: 0 auto; padding: 36px 20px 60px; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 26px; }
+  .drop { border: 2px dashed #3a3f4d; border-radius: 18px; padding: 46px 20px; text-align: center; background: var(--panel);
+          transition: border-color .15s, background .15s; }
+  .drop.over { border-color: var(--accent); background: #ff8a3d10; }
+  .drop .big { font-size: 46px; line-height: 1; margin-bottom: 10px; }
+  .drop h2 { margin: 0 0 6px; font-size: 21px; }
+  .drop p { color: var(--muted); margin: 0 0 20px; }
+  .btn { padding: 12px 22px; border-radius: 11px; background: var(--accent); color: #1b1006; font-weight: 700; font-size: 16px; }
+  .btn:hover { background: var(--accent2); }
+  .btn.ghost { background: var(--panel2); color: var(--text); font-weight: 600; }
+  .btn.ghost:hover { background: #2a2e39; }
+  .btn.danger { background: #3a1d1f; color: #ffb3b3; }
+  .btn.danger:hover { background: #4c2326; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .steps3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 22px 0 0; }
+  .steps3 div { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; font-size: 14px; color: var(--muted); }
+  .steps3 b { display: block; color: var(--text); margin-bottom: 2px; }
+  .tips { margin-top: 14px; font-size: 13.5px; color: var(--muted); }
+  .tips summary { cursor: pointer; color: var(--text); }
+  .tips ul { margin: 8px 0 0; padding-left: 20px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; }
+  .alert { border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; font-size: 14.5px; }
+  .alert.bad { background: #2a1416; border: 1px solid #5c2329; color: #ffc9c9; }
+  .alert.warn { background: #2a2414; border: 1px solid #5c4a23; color: #ffe7a8; }
+  .alert ul { margin: 6px 0 0; padding-left: 20px; }
+
+  .ready { display: flex; gap: 18px; align-items: center; margin-top: 18px; }
+  .ready img { width: 120px; height: 160px; object-fit: cover; border-radius: 10px; background: #000; flex-shrink: 0; }
+  .ready h3 { margin: 0 0 4px; font-size: 18px; }
+  .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0 12px; }
+  .choice { text-align: left; padding: 12px 14px; border-radius: 11px; background: var(--panel2); border: 2px solid transparent; }
+  .choice.sel { border-color: var(--accent); }
+  .choice b { display: block; }
+  .choice small { color: var(--muted); }
+
+  h2.sec { font-size: 17px; margin: 38px 0 12px; color: var(--muted); font-weight: 600; }
+  .hist { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+  .hcard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; text-align: left; padding: 0; position: relative; }
+  .hcard:hover { border-color: #3d4250; }
+  .hcard img, .hcard .noimg { width: 100%; height: 120px; object-fit: cover; display: block; background: #000; }
+  .hcard .meta { padding: 9px 11px 11px; }
+  .hcard .nm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hcard .when { font-size: 12.5px; color: var(--muted); }
+  .badge { display: inline-block; font-size: 11.5px; padding: 1px 7px; border-radius: 20px; margin-top: 4px; font-weight: 600; }
+  .badge.done { background: #173326; color: var(--good); }
+  .badge.running { background: #3a2614; color: var(--accent2); }
+  .badge.failed, .badge.cancelled, .badge.interrupted { background: #33181a; color: #ff9b9b; }
+  .badge.ready { background: #262a35; color: var(--muted); }
+  .hcard .del { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 8px; background: #000a;
+                color: #ddd; display: none; place-items: center; }
+  .hcard:hover .del { display: grid; }
+  .empty { color: var(--muted); font-size: 14px; }
+
+  /* project view */
+  .proj { display: grid; grid-template-columns: 340px 1fr; height: 100%; }
+  .side { border-right: 1px solid var(--line); padding: 22px 20px; overflow-y: auto; background: var(--panel); }
+  .side h2 { margin: 0 0 2px; font-size: 19px; overflow-wrap: anywhere; }
+  .timer { font-size: 38px; font-weight: 750; letter-spacing: -.5px; margin: 16px 0 0; font-variant-numeric: tabular-nums; }
+  .timer small { font-size: 15px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  .elapsed { color: var(--muted); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+  .pbar { height: 8px; background: var(--panel2); border-radius: 8px; overflow: hidden; margin: 12px 0 20px; }
+  .pbar div { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 8px; transition: width .8s; }
+  .slist { list-style: none; margin: 0 0 20px; padding: 0; }
+  .slist li { display: grid; grid-template-columns: 26px 1fr auto; gap: 8px; align-items: start; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .slist li:last-child { border-bottom: 0; }
+  .slist .ic { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; margin-top: 1px; }
+  .slist .pending .ic { border: 2px solid #3a3f4d; }
+  .slist .active .ic { border: 2px solid var(--accent); border-top-color: transparent; animation: spin 1s linear infinite; }
+  .slist .done .ic { background: var(--good); color: #062014; font-weight: 800; }
+  .slist .pending .lbl { color: var(--muted); }
+  .slist .tm { color: var(--muted); font-size: 12.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .slist .sp { grid-column: 2 / 4; height: 4px; background: var(--panel2); border-radius: 4px; overflow: hidden; margin-top: 2px; }
+  .slist .sp div { height: 100%; background: var(--accent); transition: width .8s; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .actions .btn { font-size: 14px; padding: 9px 14px; text-decoration: none; display: inline-block; }
+  .small { font-size: 12.5px; color: var(--muted); margin-top: 14px; }
+  .small a { color: var(--muted); }
+  .stage-area { position: relative; background: #0a0a0c; }
+  .stage-area iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .waiting { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--muted); padding: 30px; }
+  .waiting .big { font-size: 42px; margin-bottom: 10px; }
+  .pv-note { position: absolute; right: 12px; bottom: 12px; background: #000b; border-radius: 10px; padding: 8px 12px; font-size: 13px;
+             display: flex; gap: 10px; align-items: center; }
+  .pv-note button { background: var(--accent); color: #1b1006; border-radius: 7px; padding: 4px 10px; font-weight: 700; font-size: 13px; }
+  .modal { position: fixed; inset: 0; background: #000c; display: none; place-items: center; z-index: 10; }
+  .modal.show { display: grid; }
+  .modal video { max-width: 92vw; max-height: 86vh; border-radius: 12px; }
+  .modal .close { position: absolute; top: 16px; right: 20px; font-size: 26px; background: none; }
+  @media (max-width: 760px) {
+    .proj { grid-template-columns: 1fr; grid-template-rows: auto 60vh; }
+    .side { border-right: 0; border-bottom: 1px solid var(--line); }
+    .steps3, .choices { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="bar">
+    <div class="logo"><img src="/app/ui/icon.png" alt="">Splat Studio</div>
+    <div class="tabs" id="tabs"></div>
+    <div class="sys" id="sys">checking computer…</div>
+  </div>
+  <div class="views" id="views">
+    <div class="view active" id="view-home">
+      <div class="home">
+        <h1>Turn a video into a 3D scene</h1>
+        <p class="sub">Film an object by walking around it, drop the video here, and get a 3D Gaussian splat you can fly around.</p>
+        <div id="sysalert"></div>
+        <div class="drop" id="drop">
+          <div class="big">🎬</div>
+          <h2>Drag a video here</h2>
+          <p>or</p>
+          <button class="btn" id="pick">Choose a video</button>
+          <input type="file" id="file" accept="video/*,.mp4,.mov,.m4v" hidden>
+        </div>
+        <div id="ready"></div>
+        <div class="steps3">
+          <div><b>1 · Add a video</b>20–40 s, walking slowly all the way around something.</div>
+          <div><b>2 · Wait</b>About an hour on a recent Mac. A preview shows up after a few minutes.</div>
+          <div><b>3 · Fly around it</b>Drag to orbit, scroll to zoom. You also get a fly-around video.</div>
+        </div>
+        <details class="tips">
+          <summary>How to film a good video</summary>
+          <ul>
+            <li>Any phone works; 1080p is plenty (4K isn't needed).</li>
+            <li>Walk a full circle around the object, slowly, keeping it in frame. Get a few higher and lower angles if you can.</li>
+            <li>Avoid blur. Pausing for a second here and there is fine; blurry frames are skipped automatically.</li>
+            <li>Textured surroundings (wood, grass, rugs) help. Plain white tables, glass and mirror-shiny objects are hard.</li>
+            <li>Nothing should move in the scene: no people walking through, no pets.</li>
+          </ul>
+        </details>
+        <h2 class="sec">Your splats</h2>
+        <div class="hist" id="hist"><div class="empty">Nothing yet. Your finished scenes will show up here.</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal" id="modal"><button class="close" onclick="closeVideo()">✕</button><video id="mvideo" controls autoplay loop></video></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = (p, opt) => fetch(p, opt).then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText); return j; });
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let SYS = null, PROJECTS = [], pending = null, quality = 'full';
+const tabs = new Map();   // id -> {el, view, timer, poll, status, name}
+
+function dur(s) {
+  s = Math.max(0, Math.round(s));
+  if (s < 60) return s + ' s';
+  const m = Math.round(s / 60);
+  if (m < 60) return m + ' min';
+  return Math.floor(m / 60) + ' h ' + (m % 60 ? (m % 60) + ' min' : '');
+}
+function clock(s) {
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0');
+}
+const sum = e => e.frames + e.colmap + e.train + e.finish;
+
+// ---------- system check ----------
+async function loadSystem() {
+  SYS = await api('/api/system');
+  const ok = SYS.supported;
+  $('#sys').className = 'sys' + (ok ? '' : ' bad');
+  $('#sys').innerHTML = `${esc(SYS.gpu)} · ${Math.round(SYS.ram_gb)} GB <b>${ok ? '✓ ready' : '✕ not supported'}</b>`;
+  let html = '';
+  if (!ok) html += `<div class="alert bad"><b>This computer can't make splats with Splat Studio.</b><ul>${SYS.problems.map(p => `<li>${esc(p)}</li>`).join('')}</ul>
+                    <div style="margin-top:8px">You can still open finished splats from other people.</div></div>`;
+  if (SYS.warnings.length) html += `<div class="alert warn"><ul style="margin:0">${SYS.warnings.map(p => `<li>${esc(p)}</li>`).join('')}</ul></div>`;
+  $('#sysalert').innerHTML = html;
+  $('#pick').disabled = !ok;
+}
+
+// ---------- upload ----------
+const drop = $('#drop');
+['dragenter', 'dragover'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', ev => ev.dataTransfer.files[0] && upload(ev.dataTransfer.files[0]));
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', e => e.preventDefault());
+$('#pick').onclick = () => $('#file').click();
+$('#file').onchange = () => $('#file').files[0] && upload($('#file').files[0]);
+
+async function upload(file) {
+  if (SYS && !SYS.supported) return;
+  $('#ready').innerHTML = `<div class="card ready"><div><h3>Reading ${esc(file.name)}…</h3><div class="elapsed">Copying the video and measuring it</div></div></div>`;
+  try {
+    const r = await api('/api/upload?name=' + encodeURIComponent(file.name), { method: 'POST', body: file });
+    pending = r.project; quality = 'full';
+    renderReady(r.warnings);
+    loadProjects();
+  } catch (e) {
+    $('#ready').innerHTML = `<div class="alert bad" style="margin-top:18px">${esc(e.message)}</div>`;
+  }
+}
+
+function renderReady(warnings = []) {
+  const p = pending, e = p.estimates;
+  $('#ready').innerHTML = `
+    <div class="card ready">
+      <img src="${p.thumb}" alt="">
+      <div style="flex:1;min-width:0">
+        <h3>${esc(p.name)}</h3>
+        <div class="elapsed">${Math.round(p.video_seconds)} s video · estimated on your ${esc(SYS.gpu)}</div>
+        ${warnings.map(w => `<div class="alert warn" style="margin:10px 0 0;padding:8px 12px">${esc(w)}</div>`).join('')}
+        <div class="choices">
+          <button class="choice ${quality === 'full' ? 'sel' : ''}" data-q="full"><b>Full quality · about ${dur(sum(e.full))}</b><small>30,000 training steps. Sharpest result.</small></button>
+          <button class="choice ${quality === 'quick' ? 'sel' : ''}" data-q="quick"><b>Quick test · about ${dur(sum(e.quick))}</b><small>7,000 steps. Softer, but good for checking a video.</small></button>
+        </div>
+        <button class="btn" id="go">Make my 3D splat ▶</button>
+        <button class="btn ghost" id="cancel-ready" style="margin-left:6px">Cancel</button>
+      </div>
+    </div>`;
+  document.querySelectorAll('.choice').forEach(b => b.onclick = () => { quality = b.dataset.q; renderReady(warnings); });
+  $('#go').onclick = start;
+  $('#cancel-ready').onclick = async () => { await api('/api/delete?id=' + pending.id, { method: 'POST' }); pending = null; $('#ready').innerHTML = ''; loadProjects(); };
+}
+
+async function start() {
+  try {
+    await api(`/api/start?id=${pending.id}&quality=${quality}`, { method: 'POST' });
+    const p = pending; pending = null; $('#ready').innerHTML = '';
+    openTab(p.id, p.name);
+    loadProjects();
+  } catch (e) { alert(e.message); }
+}
+
+// ---------- history ----------
+async function loadProjects() {
+  PROJECTS = await api('/api/projects');
+  const list = PROJECTS.filter(p => p.state !== 'ready');  // 'ready' = uploaded but not started yet
+  $('#hist').innerHTML = list.length ? list.map(p => `
+    <div class="hcard" data-id="${p.id}" role="button" tabindex="0">
+      ${p.thumb ? `<img src="${p.thumb}" alt="">` : '<div class="noimg"></div>'}
+      <div class="meta"><div class="nm">${esc(p.name)}</div>
+        <div class="when">${new Date(p.created * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</div>
+        <span class="badge ${p.state}">${({ done: 'Done', running: 'Processing…', failed: 'Failed', cancelled: 'Stopped', interrupted: 'Interrupted' })[p.state] || p.state}</span>
+        ${p.state === 'done' && p.elapsed ? `<span class="when"> · took ${dur(p.elapsed)}</span>` : ''}
+      </div>
+      <button class="del" title="Delete" data-del="${p.id}">🗑</button>
+    </div>`).join('') : '<div class="empty">Nothing yet. Your finished scenes will show up here.</div>';
+  document.querySelectorAll('.hcard').forEach(c => c.onclick = ev => {
+    if (ev.target.dataset.del) return;
+    const p = PROJECTS.find(x => x.id === c.dataset.id); openTab(p.id, p.name);
+  });
+  document.querySelectorAll('[data-del]').forEach(b => b.onclick = async ev => {
+    ev.stopPropagation();
+    const p = PROJECTS.find(x => x.id === b.dataset.del);
+    if (!confirm(`Delete "${p.name}" and all its files?` + (p.state === 'running' ? ' This also stops it.' : ''))) return;
+    closeTab(p.id, true);
+    await api('/api/delete?id=' + p.id, { method: 'POST' });
+    loadProjects();
+  });
+}
+
+// ---------- tabs ----------
+function renderTabs() {
+  const items = [`<button class="tab ${active === 'home' ? 'active' : ''}" data-tab="home"><span>🏠 Home</span></button>`];
+  for (const [id, t] of tabs) {
+    const running = t.status && t.status.state === 'running';
+    items.push(`<button class="tab ${active === id ? 'active' : ''}" data-tab="${id}">${running ? '<i class="dot"></i>' : ''}<span>${esc(t.name)}</span><i class="x" data-close="${id}" title="Close">×</i></button>`);
+  }
+  $('#tabs').innerHTML = items.join('');
+  document.querySelectorAll('[data-tab]').forEach(b => b.onclick = ev => {
+    if (ev.target.dataset.close) return closeTab(ev.target.dataset.close);
+    show(b.dataset.tab);
+  });
+}
+let active = 'home';
+function show(id) {
+  active = id;
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + id));
+  if (id === 'home') loadProjects();
+  renderTabs();
+}
+
+function openTab(id, name) {
+  if (!tabs.has(id)) {
+    const view = document.createElement('div');
+    view.className = 'view'; view.id = 'view-' + id;
+    view.innerHTML = `<div class="proj"><div class="side"></div><div class="stage-area"></div></div>`;
+    $('#views').appendChild(view);
+    const t = { view, name, status: null, shownPreview: null, frame: null };
+    tabs.set(id, t);
+    t.poll = setInterval(() => poll(id), 2000);
+    t.tick = setInterval(() => tickTimer(id), 1000);
+    poll(id);
+  }
+  show(id);
+}
+
+async function closeTab(id, silent) {
+  const t = tabs.get(id);
+  if (!t) return;
+  if (!silent && t.status && t.status.state === 'running') {
+    if (!confirm(`"${t.name}" is still processing. Stop it? (This ends its GPU work. You'd have to start over.)`)) return;
+    await api('/api/cancel?id=' + id, { method: 'POST' });
+  }
+  clearInterval(t.poll); clearInterval(t.tick);
+  if (t.frame) t.frame.src = 'about:blank';   // frees the viewer's GPU memory
+  t.view.remove();
+  tabs.delete(id);
+  if (active === id) show('home'); else renderTabs();
+}
+
+// ---------- project view ----------
+async function poll(id) {
+  const t = tabs.get(id);
+  if (!t) return;
+  let st;
+  try { st = await api('/api/status?id=' + id); } catch { return; }
+  const prevState = t.status && t.status.state;
+  t.status = st; t.syncedAt = Date.now();
+  if (!st.state && st.project) st.state = st.project.state;
+  if (st.state === 'running' && !st.running) st.state = 'interrupted';
+  renderSide(id);
+  renderStage(id);
+  if (prevState !== st.state) { renderTabs(); if (st.state !== 'running') loadProjects(); }
+  if (st.state !== 'running' && st.state) { clearInterval(t.poll); t.poll = null; }
+}
+
+function tickTimer(id) {
+  const t = tabs.get(id);
+  if (!t || !t.status || t.status.state !== 'running') return;
+  const since = (Date.now() - t.syncedAt) / 1000;
+  const el = t.view.querySelector('.timer');
+  if (el) el.innerHTML = `${clock(t.status.eta - since)} <small>left</small>`;
+  const el2 = t.view.querySelector('.elapsed-live');
+  if (el2) el2.textContent = `Elapsed ${clock(t.status.elapsed + since)}`;
+}
+
+function renderSide(id) {
+  const t = tabs.get(id), st = t.status, p = st.project || {}, side = t.view.querySelector('.side');
+  const base = `/projects/${id}/`;
+  let html = `<h2>${esc(p.name || t.name)}</h2>`;
+  if (st.state === 'running') {
+    html += `<div class="timer">${clock(st.eta)} <small>left</small></div>
+             <div class="elapsed elapsed-live">Elapsed ${clock(st.elapsed)}</div>
+             <div class="pbar"><div style="width:${(st.progress * 100).toFixed(1)}%"></div></div>`;
+  } else if (st.state === 'done') {
+    html += `<div class="elapsed" style="margin:6px 0 16px">Finished in ${dur(st.elapsed)} ✓</div>`;
+  } else if (st.state) {
+    html += `<div class="alert bad" style="margin:12px 0 16px">${st.state === 'failed' ? '<b>Something went wrong.</b><br>' + esc(st.error || '')
+           : st.state === 'cancelled' ? 'Stopped.' : 'This job was interrupted (the app was closed while it ran).'}</div>`;
+  }
+  if (st.stages) {
+    html += '<ul class="slist">' + st.stages.map((s, i) => {
+      const cls = s.end ? 'done' : s.start && st.state === 'running' ? 'active' : 'pending';
+      const tm = s.end ? dur(s.end - s.start) : cls === 'active' ? '' : '~' + dur(s.est);
+      let lbl = esc(s.label);
+      if (s.key === 'train' && cls === 'active') lbl += `<div class="elapsed">step ~${st.train_step.toLocaleString()} of ${st.train_total.toLocaleString()}</div>`;
+      return `<li class="${cls}"><span class="ic">${cls === 'done' ? '✓' : ''}</span><span class="lbl">${lbl}</span><span class="tm">${tm}</span>
+              ${cls === 'active' ? `<div class="sp"><div style="width:${(s.progress * 100).toFixed(1)}%"></div></div>` : ''}</li>`;
+    }).join('') + '</ul>';
+  }
+  if (st.warnings && st.warnings.length) html += `<div class="alert warn" style="font-size:13px">${st.warnings.map(esc).join('<br>')}</div>`;
+  html += '<div class="actions">';
+  if (st.state === 'running') html += `<button class="btn danger" data-act="stop">Stop</button>`;
+  if (st.state === 'done') {
+    if (p.video) html += `<button class="btn" data-act="video">▶ Fly-around video</button>`;
+    html += `<a class="btn ghost" href="${base}scene.ply" download="${esc(p.name)}.ply">Download .ply</a>
+             <a class="btn ghost" href="${base}scene.splat" download="${esc(p.name)}.splat">Download .splat</a>`;
+  }
+  if (st.state && st.state !== 'running' && st.state !== 'done') html += `<button class="btn ghost" data-act="retry">Try again</button>`;
+  html += `</div><div class="small">Logs for debugging: <a href="${base}logs/pipeline.log" target="_blank">pipeline.log</a> ·
+           <a href="${base}logs/metrics.csv" target="_blank">metrics.csv</a>${st.state !== 'running' ? ` · <a href="${base}summary.json" target="_blank">summary.json</a>` : ''}</div>`;
+  side.innerHTML = html;
+  side.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
+    const a = b.dataset.act;
+    if (a === 'stop' && confirm('Stop processing this video?')) { await api('/api/cancel?id=' + id, { method: 'POST' }); poll(id); }
+    if (a === 'video') openVideo(p.video);
+    if (a === 'retry') {
+      try { await api(`/api/start?id=${id}&quality=${p.quality || 'full'}`, { method: 'POST' }); t.poll = t.poll || setInterval(() => poll(id), 2000); poll(id); }
+      catch (e) { alert(e.message); }
+    }
+  });
+}
+
+function renderStage(id) {
+  const t = tabs.get(id), st = t.status, area = t.view.querySelector('.stage-area');
+  const base = `/projects/${id}/`;
+  let want = null, note = '';
+  if (st.state === 'done' && st.project && st.project.scene) want = 'final';
+  else if (st.preview) want = 'preview';
+  if (!want) {
+    if (t.shown !== 'waiting:' + st.state) {
+      t.shown = 'waiting:' + st.state;
+      area.innerHTML = st.state === 'running'
+        ? `<div class="waiting"><div><div class="big">🧊</div><b>A low-res preview appears here</b><br>a few minutes into training. You can drag it around while the full version keeps cooking.</div></div>`
+        : `<div class="waiting"><div>No 3D scene for this one.</div></div>`;
+      t.frame = null;
+    }
+    return;
+  }
+  const src = want === 'final'
+    ? `/tools/viewer/index.html?scene=${base}scene.splat&path=${base}camera_path.json`
+    : `/tools/viewer/index.html?scene=${base}preview.splat&path=${base}camera_path.json&t=${st.preview.updated}`;
+  if (want === 'final' && t.shown !== 'final') return loadFrame(t, area, src, 'final');
+  if (want === 'preview') {
+    if (!t.shown || !t.shown.startsWith('preview')) return loadFrame(t, area, src, 'preview:' + st.preview.step);
+    if (t.shown !== 'preview:' + st.preview.step) {
+      let n = area.querySelector('.pv-note');
+      if (!n) { n = document.createElement('div'); n.className = 'pv-note'; area.appendChild(n); }
+      n.innerHTML = `Newer preview ready (step ${st.preview.step.toLocaleString()}) <button>Load it</button>`;
+      n.querySelector('button').onclick = () => loadFrame(t, area, src, 'preview:' + st.preview.step);
+    }
+  }
+}
+
+function loadFrame(t, area, src, shown) {
+  if (t.frame) t.frame.src = 'about:blank';
+  area.innerHTML = '';
+  const f = document.createElement('iframe');
+  f.src = src; area.appendChild(f);
+  if (shown.startsWith('preview')) {
+    const n = document.createElement('div'); n.className = 'pv-note';
+    n.textContent = `Low-res preview (step ${shown.split(':')[1].replace(/\B(?=(\d{3})+(?!\d))/g, ',')}). Still training…`;
+    area.appendChild(n);
+  }
+  t.frame = f; t.shown = shown;
+}
+
+function openVideo(src) { $('#mvideo').src = src; $('#modal').classList.add('show'); }
+function closeVideo() { $('#mvideo').pause(); $('#mvideo').src = ''; $('#modal').classList.remove('show'); }
+$('#modal').onclick = e => { if (e.target.id === 'modal') closeVideo(); };
+
+// ---------- lifecycle ----------
+// The server shuts down (and stops all GPU work) a few seconds after this window closes (pagehide -> /api/bye),
+// or ~2.5 min after heartbeats stop. A reload sends a fresh heartbeat in time, so it doesn't shut down.
+async function beat() {
+  try {
+    const r = await api('/api/heartbeat', { method: 'POST' });
+    for (const id of r.running) if (!tabs.has(id)) { const p = PROJECTS.find(x => x.id === id); openTab(id, p ? p.name : id); }
+  } catch { }
+}
+addEventListener('pagehide', () => navigator.sendBeacon('/api/bye'));
+addEventListener('beforeunload', e => {
+  if ([...tabs.values()].some(t => t.status && t.status.state === 'running')) { e.preventDefault(); e.returnValue = ''; }
+});
+
+(async () => {
+  renderTabs();
+  await loadSystem();
+  await loadProjects();
+  beat(); setInterval(beat, 5000);
+})();
+</script>
+</body>
+</html>

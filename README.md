@@ -37,20 +37,56 @@ The [Releases page](https://github.com/DoviFeldman/GAUSSIAN_SPLATTING/releases) 
 
 ---
 
+## 🖥️ Splat Studio: the one-button app (Mac + Linux)
+
+![Splat Studio showing a finished splat](docs/studio.jpg)
+
+A simple dark-themed app: **drag in a video → it tells you how long it'll take on your computer → it makes the 3D splat**.
+You get a countdown timer with each step, a low-res 3D preview a few minutes in, and at the end the finished scene
+opens so you can fly around it. Past splats are kept in a history, and each opens in its own tab.
+
+**Install (once, ~2 min, needs internet):**
+```bash
+git clone https://github.com/DoviFeldman/GAUSSIAN_SPLATTING.git ~/GaussianSplatting
+cd ~/GaussianSplatting
+./setup.sh
+```
+That installs everything inside the folder and adds a **Splat Studio icon to your Dock** (Mac) or app menu (Linux).
+**After that it works completely offline.**
+
+**Use it:**
+1. Click the **Splat Studio** icon in the Dock.
+2. Drag a video onto the window (or click **Choose a video**).
+3. Pick **Full quality** (~1 h 10 min on an M5) or **Quick test** (~20 min, already looks good) and press **Make my 3D splat**.
+4. Leave it running. After a few minutes a low-res preview appears that you can already drag around.
+5. When it's done, the 3D scene opens. Drag to orbit, scroll to zoom, and watch the fly-around video or download the files.
+
+**Good to know**
+- **Closing the window stops everything** within seconds (training, GPU work, the background server). If a job is still running, it asks first.
+- **Closing a tab frees its 3D viewer.** Closing the tab of a job that's still running offers to stop that job.
+- Only one video processes at a time, which keeps your GPU and RAM sane.
+- The time estimate starts from your chip type and corrects itself as it runs. After your first finished job, it uses your computer's real measured speed.
+- If your computer can't do it (Intel Mac, Linux without a Vulkan GPU driver, under 8 GB RAM), the app says so right at the top.
+- Files live in `~/GaussianSplatting/projects/<date>-<name>/`: `scene.ply` (full quality), `scene.splat` (small, for sharing),
+  `flyaround.mp4`, and `logs/` (see [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md) for debugging).
+- Remove the Dock icon by dragging it out. Uninstall by deleting `~/Applications/Splat Studio.app` and the `GaussianSplatting` folder.
+
+---
+
 ## Can my computer make one?
 
 | Computer | Works? | Notes |
 |---|---|---|
-| **Apple Silicon Mac (M1–M5), 16 GB+ RAM** | ✅ Yes, this is what the scripts are built for | Tested on an M5 / 16 GB MacBook |
+| **Apple Silicon Mac (M1–M5), 16 GB+ RAM** | ✅ Yes, the main target | Tested on an M5 / 16 GB MacBook |
 | Apple Silicon Mac, 8 GB RAM | ⚠️ Should work | Training used 4.5 GB here. Close other apps; if it struggles, use fewer splats (see [Tuning](#tuning)) |
 | Intel Mac | ❌ Not with these scripts | Brush has no prebuilt Intel-Mac build |
-| Windows / Linux PC with a gaming GPU (NVIDIA / AMD, 6 GB+ VRAM) | ✅ The same tools work | Brush and pycolmap both have Windows/Linux builds, but these `.sh` scripts are Mac-only. Run the Python steps by hand (below), or use WSL on Windows |
+| **Linux PC (x86_64) with a GPU + Vulkan driver** (NVIDIA / AMD / Intel Arc, 6 GB+ VRAM) | ✅ Splat Studio + setup.sh support it | Written for Linux but **not yet tested on a real Linux machine**. The command-line `.sh` scripts are Mac-only |
+| Windows PC with a gaming GPU | ⚠️ Manual only | Brush and pycolmap have Windows builds; run the Python steps by hand (below), or use WSL |
 | Laptop with only integrated graphics, or a Chromebook | ❌ Too slow / unsupported | Can still **view** splats in the browser |
 
-**RAM:** training is the hungry part. On this example (127 frames at 900×1600, 1.35 million splats) Brush
-peaked at **4.5 GB** (measured, GPU memory included); COLMAP needs far less. On a Mac, RAM and graphics memory are
-shared, so **16 GB is comfortable, and 8 GB works if you close Chrome and other big apps**. Bigger scenes or
-more frames need more.
+**RAM:** on this example (127 frames at 900×1600, 1.35 million splats), training peaked at **4.5 GB** and COLMAP's
+feature step at **4.2 GB** (measured, GPU memory included). On a Mac, RAM and graphics memory are shared, so
+**16 GB is comfortable, and 8 GB works if you close Chrome and other big apps**. Bigger scenes or more frames need more.
 
 **Disk:** ~200 MB for the tools, plus ~2 GB per project (frames, COLMAP data, training checkpoints).
 You can delete everything except the final `.ply` afterwards.
@@ -71,20 +107,20 @@ You can delete everything except the final `.ply` afterwards.
 | Step | What it does | Time for the 30 s example |
 |---|---|---|
 | 0. Setup (once) | Download the tools | ~1–2 min on good Wi-Fi |
-| 1. Pick frames | Pulls ~150 of the sharpest frames out of the video | 30 s |
-| 2. COLMAP | Works out where the phone was for every frame and makes a rough 3D point cloud | 13 min |
+| 1. Pick frames | Pulls ~150 of the sharpest frames out of the video | 4 s |
+| 2. COLMAP | Works out where the phone was for every frame and makes a rough 3D point cloud | 6–7 min |
 | 3. Train (Brush) | Grows and tunes ~1.3M splats until renders match the photos (30,000 steps) | **62 min** |
 | 4. Camera path | Plans a new orbit around the object | 1 s |
 | 5. Record video | Renders 300 frames (10 s at 720p) and saves an mp4 | 40 s |
-| **Total** | | **~75 min**, mostly hands-off |
+| **Total** | | **~70 min** (Quick mode: ~20 min), mostly hands-off |
 
 **Longer videos:** the frame picker takes a fixed number of frames (150 by default) however long the video is, so a
 1-minute video takes the **same time** as a 30 s one, just with frames spaced further apart. If you raise
 `--frames` to cover a bigger scene, COLMAP gets slower fast (300 frames ≈ 3–4× longer for step 2), while training
 grows more slowly (≈ 1.3–1.5×).
 
-**Faster test runs:** train fewer steps. 7,000 steps takes about 10 min and already looks decent
-(the 5,000-step checkpoint, after 6 min, already looked good). 30,000 is the full-quality default.
+**Faster test runs:** train fewer steps. 7,000 steps (Splat Studio's *Quick test*) takes about 13 min and already looks
+good. 30,000 is the full-quality default.
 
 **Other computers (rough guesses, not measured):** an M1/M2 base chip is probably 2–3× slower at training.
 An M3/M4 Pro/Max is about the same speed or faster. A recent NVIDIA gaming GPU is about the same or faster. More
@@ -92,7 +128,9 @@ RAM doesn't make it faster; it just lets you train bigger scenes without running
 
 ---
 
-## Making your own (Apple Silicon Mac)
+## Command-line way (Apple Silicon Mac)
+
+Same pipeline as Splat Studio, as separate scripts. Handy for automation or tweaking.
 
 ```bash
 # 1. get the code
@@ -100,9 +138,9 @@ git clone https://github.com/DoviFeldman/GAUSSIAN_SPLATTING.git ~/GaussianSplatt
 cd ~/GaussianSplatting
 
 # 2. one-time setup (installs into this folder only; needs Python 3.10+, see below)
-./setup.sh
+./setup.sh --no-app     # leave off --no-app to also get the Dock icon
 
-# 3. video -> splat  (~75 min; run it and walk away)
+# 3. video -> splat  (~70 min; run it and walk away)
 scripts/run_all.sh ~/Downloads/my_video.mp4 my_thing
 
 # 4. render a fly-around video -> projects/my_thing/new_angle.mp4
@@ -145,7 +183,7 @@ phone video ──► extract_frames.py ──► COLMAP ──► Brush ──�
 | Program | What it is | Link / license |
 |---|---|---|
 | **OpenCV** | Reads the video, measures sharpness (Laplacian variance), and writes the final mp4 | [opencv.org](https://opencv.org) · Apache 2.0 |
-| **COLMAP** via **pycolmap** | "Structure from Motion": matches features between photos to work out each camera's position, lens and a sparse 3D point cloud. pycolmap is the official Python package, a 20 MB download with nothing to compile | [colmap.github.io](https://colmap.github.io) · BSD |
+| **COLMAP** + **GLOMAP** via **pycolmap** | "Structure from Motion": matches features between photos to work out each camera's position, lens and a sparse 3D point cloud. GLOMAP (built in) solves all cameras at once, which here was 15× faster than classic COLMAP and more accurate. pycolmap is the official Python package, a 20 MB download with nothing to compile | [colmap.github.io](https://colmap.github.io) · BSD |
 | **Brush** | Trains the Gaussian splat on the GPU. Uses WebGPU, so it runs on Apple Metal with no NVIDIA/CUDA needed | [github.com/ArthurBrussee/brush](https://github.com/ArthurBrussee/brush) · Apache 2.0 |
 | **three.js** + **GaussianSplats3D** | Draws splats in the browser (included in `tools/viewer/lib/`) | [three.js](https://threejs.org) · [mkkellogg/GaussianSplats3D](https://github.com/mkkellogg/GaussianSplats3D) · MIT |
 | **Google Chrome (headless)** | `record_video.sh` runs a hidden Chrome window with a throwaway profile to render video frames. It doesn't touch your normal Chrome | already on most Macs |
@@ -154,10 +192,15 @@ phone video ──► extract_frames.py ──► COLMAP ──► Brush ──�
 
 | Path | What it does |
 |---|---|
-| `setup.sh` | One-time install: Python venv + Brush (checksum-verified) |
+| `setup.sh` | One-time install: Python venv + Brush (checksum-verified) + the app icon. Mac and Linux |
+| `app/studio.py` | Splat Studio's local server: uploads, starting/stopping jobs, history, auto-shutdown when the window closes |
+| `app/pipeline.py` | Runs one job (all the steps below), with live progress, ETA, previews and logs |
+| `app/hardware.py` | "Can this computer do it?" checks and time estimates (self-calibrating) |
+| `app/ui/index.html` | The Splat Studio interface |
+| `app/launch.sh`, `app/install_app.sh` | Dock / app-menu launcher and its installer |
 | `scripts/run_all.sh` | Runs steps 1–4 in a row |
 | `scripts/extract_frames.py` | Splits the video into 150 equal time slices and keeps the sharpest frame of each. Drops slices that are all blur |
-| `scripts/run_colmap.py` | COLMAP: features → match every pair of frames → 3D reconstruction → undistort, giving `dataset/` ready for Brush |
+| `scripts/run_colmap.py` | COLMAP: features → match every pair of frames → GLOMAP global reconstruction (falls back to classic incremental) → undistort, giving `dataset/` ready for Brush |
 | `scripts/make_camera_path.py` | Finds the object (where all camera views point), the table plane (so "up" is level) and the filming distance, then writes a new orbit to `camera_path.json` |
 | `scripts/record_video.sh` | Renders `camera_path.json` to an mp4 using the viewer in headless Chrome |
 | `scripts/ply_to_splat.py` | Shrinks a trained `.ply` into a shareable `.splat` |
@@ -216,6 +259,7 @@ Chrome command inside it is easy to adapt.)
 ---
 
 ## Notes for an AI agent repeating this
+- **Splat Studio internals, log files and debugging: [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md).**
 - Run `run_all.sh` in the background. Brush prints nothing while training, so watch `projects/NAME/splat/` for
   `splat_05000.ply` … `splat_30000.ply`. Each 5k checkpoint is a viewable splat, so check the first one early.
 - On slow internet, avoid `brew install colmap` (~100 dependencies, including Qt and gcc). pycolmap is a single 20 MB wheel.
