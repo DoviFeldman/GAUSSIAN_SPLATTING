@@ -37,6 +37,21 @@ The [Releases page](https://github.com/DoviFeldman/GAUSSIAN_SPLATTING/releases) 
 
 ---
 
+## 🖨️ 3D-print the pirate ship (splat → printable model)
+
+The splat was turned back into a clean, solid model you can slice in Bambu Studio:
+**[`splat_to_print/model/pirate_ship_clean.stl`](splat_to_print/model/pirate_ship_clean.stl)** (also `.3mf`),
+90 × 48 × 84 mm, watertight, flat base.
+
+![model vs real photos](splat_to_print/images/compare_photo_vs_model.jpg)
+
+It's **hand-modelled from measurements of the scan**: silhouettes from all the photos give the ship's size and
+shape, and then the hull, sails, masts and crow's nest are built from clean solid parts. Meshing the scan directly
+came out too lumpy. Everything is in **[splat_to_print/](splat_to_print/)**: the scripts, a
+[prompt to repeat it with Claude](splat_to_print/PROMPT.md), and [lessons learned](splat_to_print/LESSONS.md).
+
+---
+
 ## 🖥️ Splat Studio: the one-button app (Mac + Linux)
 
 ![Splat Studio showing a finished splat](docs/studio.jpg)
@@ -260,6 +275,7 @@ Chrome command inside it is easy to adapt.)
 
 ## Notes for an AI agent repeating this
 - **Splat Studio internals, log files and debugging: [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md).**
+- **Splat → 3D-printable model: follow [splat_to_print/PROMPT.md](splat_to_print/PROMPT.md) and [LESSONS.md](splat_to_print/LESSONS.md).** Use the hand-modelled CSG method, not a mesh made straight from the scan.
 - Run `run_all.sh` in the background. Brush prints nothing while training, so watch `projects/NAME/splat/` for
   `splat_05000.ply` … `splat_30000.ply`. Each 5k checkpoint is a viewable splat, so check the first one early.
 - On slow internet, avoid `brew install colmap` (~100 dependencies, including Qt and gcc). pycolmap is a single 20 MB wheel.

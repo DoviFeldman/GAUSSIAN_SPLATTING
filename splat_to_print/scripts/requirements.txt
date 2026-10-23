@@ -1,0 +1,10 @@
+# own venv (Python 3.12), e.g. projects/NAME/print/venv ; pycolmap comes from the main repo venv (02_export_cams.py)
+numpy
+scipy
+plyfile
+pillow
+trimesh
+manifold3d
+open3d
+lxml
+networkx
