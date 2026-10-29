@@ -1,0 +1,10 @@
+i want you to try to do Gaussian Splatting on my computer. 
+you know where you put in a video and then render a 3d scene you can move around in and can record the scene from a different angle and it looks all cool and stuff.
+(in my downloads)here is a 30 second video going around my 3d printed rusty toy pirate ship outside in the sun, 
+some frames are blurry till i hold still for a second just to let you know. 
+
+
+download any other programs that you have to download(without breaking my computer obviously)
+you can take time, it doesnt have to be the best video, i just want to try it to see if it works and have repeatable steps 
+so that we could do it again if i want to take another video, so save all the steps for another agent like yourself to do. 
+let me know if you need anything otherwise go ahead. i wont be using this computer while you are working on it so the ram should stay steady, 
