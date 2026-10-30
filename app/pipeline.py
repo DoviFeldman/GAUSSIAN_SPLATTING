@@ -9,8 +9,13 @@ Writes projects/<id>/status.json    (live progress for the UI, rewritten every s
        projects/<id>/summary.json        (timings, counts, peak memory; written at the end)
        projects/<id>/preview.splat       (latest training checkpoint, for the live preview)
        projects/<id>/scene.splat + scene.ply + flyaround.mp4   (results)
+       projects/<id>/resume.json         (which stages are finished; lets a re-run continue)
 
+One process per video: when it exits, the OS gets back all its RAM and GPU memory.
 The UI starts this in its own process group and stops it by killing that group.
+
+Re-running after a pause, crash or power cut continues from the last finished stage, and
+training continues from its last checkpoint (Brush --start-iter with dataset/init.ply).
 """
 import csv
 import glob
@@ -35,7 +40,33 @@ import hardware  # noqa: E402
 from ply_to_splat import convert  # noqa: E402
 
 PY = [sys.executable, "-I"]
-TARGET_FRAMES = 150
+TARGET_FRAMES = int(os.environ.get("SPLAT_TARGET_FRAMES", 150))  # env override is for fast test runs
+
+
+def read_json(path, default=None):
+    try:
+        with open(path) as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return default
+
+
+def ply_complete(path):
+    """True if a .ply has every byte its header promises (a power cut can leave a partial file)."""
+    try:
+        with open(path, "rb") as fh:
+            n, props = 0, 0
+            for _ in range(200):
+                line = fh.readline().decode(errors="replace").strip()
+                if line.startswith("element vertex"):
+                    n = int(line.split()[-1])
+                elif line.startswith("property float"):
+                    props += 1
+                elif line == "end_header":
+                    return n > 0 and os.path.getsize(path) == fh.tell() + n * props * 4
+    except (OSError, ValueError):
+        pass
+    return False
 
 
 class Job:
@@ -47,10 +78,17 @@ class Job:
         os.makedirs(os.path.join(self.proj, "logs"), exist_ok=True)
         self.log_fh = open(os.path.join(self.proj, "logs", "pipeline.log"), "a", buffering=1)
         self.info = hardware.detect()
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()  # re-entrant: the SIGTERM handler can interrupt a holder on the same thread
         self.child = None  # current subprocess (for memory sampling)
         self.peak_mem_mb = 0
-        self.t0 = time.time()
+        self.resume = read_json(os.path.join(self.proj, "resume.json"), {})
+        old = read_json(os.path.join(self.proj, "status.json"), {})
+        if self.resume.get("steps") != self.steps:  # new job, or quality changed: frames and cameras stay valid
+            self.discard_training()
+        self.resume["steps"] = self.steps
+        self.resumed = bool(self.resume.get("stages"))
+        self.train_frac0 = 0.0
+        self.t0 = time.time() - (old.get("elapsed", 0) if self.resumed else 0)
         est = self.cfg["estimate"]
         self.status = {
             "state": "running", "message": "Starting…", "warnings": [], "error": None,
@@ -65,6 +103,33 @@ class Job:
         }
         for s in self.status["stages"]:
             s.update(start=None, end=None, progress=0.0)
+            done = self.resume.get("stages", {}).get(s["key"])
+            if done:  # finished in an earlier run; keep its real timing
+                s.update(start=done["start"], end=done["end"], progress=1.0, prior_s=done.get("prior_s", 0))
+        if old.get("preview") and os.path.exists(os.path.join(self.proj, "preview.splat")):
+            self.status["preview"] = old["preview"]
+
+    # ---------- saved progress ----------
+    def save_resume(self):
+        path = os.path.join(self.proj, "resume.json")
+        with open(path + ".tmp", "w") as fh:
+            json.dump(self.resume, fh)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(path + ".tmp", path)
+
+    def discard_training(self):
+        for f in ("scene.ply", "scene.splat", "preview.splat", "flyaround.mp4", os.path.join("dataset", "init.ply")):
+            try:
+                os.remove(os.path.join(self.proj, f))
+            except OSError:
+                pass
+        shutil.rmtree(os.path.join(self.proj, "splat"), ignore_errors=True)
+        stages = self.resume.get("stages", {})
+        for key in ("train", "finish"):
+            stages.pop(key, None)
+        self.resume.pop("train_step", None)
+        self.resume.pop("train_prior_s", None)
 
     # ---------- logging / status ----------
     def log(self, msg):
@@ -120,6 +185,8 @@ class Job:
         self.stage(i, progress=1.0, end=time.time())
         s = self.status["stages"][i]
         self.log(f"=== stage {i + 1} done in {s['end'] - s['start']:.0f}s (estimated {s['est']}s)")
+        self.resume.setdefault("stages", {})[s["key"]] = {"start": s["start"], "end": s["end"], "prior_s": s.get("prior_s", 0)}
+        self.save_resume()
 
     # ---------- running tools ----------
     def run(self, cmd, cwd=None, on_line=None, env=None):
@@ -186,6 +253,7 @@ class Job:
     # ---------- the stages ----------
     def stage_frames(self):
         self.begin(0)
+        shutil.rmtree(os.path.join(self.proj, "images"), ignore_errors=True)  # may be partial after a power cut
         def on_line(l):
             if l.startswith("progress "):
                 self.stage(0, float(l.split()[1]))
@@ -200,6 +268,7 @@ class Job:
         # re-estimate COLMAP for the real frame count
         est = hardware.estimate(self.info, self.cfg["video_seconds"], self.cfg["video_pixels"], self.n_frames, self.steps)
         self.stage(1, est=est["colmap"])
+        self.resume["n_frames"] = self.n_frames
         self.end(0)
 
     def stage_colmap(self):
@@ -230,6 +299,7 @@ class Job:
                                            "parts of the object may look blurry.")
         # plan the fly-around now, so the live preview opens with a good view and "up" direction
         self.run(PY + [os.path.join(ROOT, "scripts", "make_camera_path.py"), self.proj, "--seconds", "10"])
+        self.resume["registered"] = self.registered
         self.end(1)
 
     def stage_train(self):
@@ -245,6 +315,34 @@ class Job:
         env = dict(os.environ, RUST_LOG="info")
         start = time.time()
         stop = threading.Event()
+
+        # pick up from the newest complete checkpoint, if an earlier run left one
+        init = os.path.join(self.proj, "dataset", "init.ply")
+        ckpts = [f for f in glob.glob(os.path.join(out, "splat_*.ply")) if ply_complete(f)]
+        latest = max(ckpts, key=lambda f: int(re.search(r"splat_(\d+)", f).group(1)), default=None)
+        resume_step = 0
+        if latest:
+            resume_step = int(re.search(r"splat_(\d+)", latest).group(1))
+        elif self.resume.get("train_step") and ply_complete(init):  # paused again before the next checkpoint
+            resume_step = self.resume["train_step"]
+        elif os.path.exists(init):
+            os.remove(init)
+        for f in glob.glob(os.path.join(out, "splat_*.ply")):
+            if f != latest:
+                os.remove(f)
+        self.train_frac0 = hardware.train_fraction(resume_step)
+        frac_end = hardware.train_fraction(self.steps)
+        prior_s = self.resume.get("train_prior_s", 0)
+        self.stage(2, resume_step / self.steps, prior_s=prior_s,
+                   est=round(self.status["stages"][2]["est"] * (frac_end - self.train_frac0) / max(1e-6, frac_end)))
+        self.set(train_step=resume_step)
+        if resume_step and resume_step < self.steps:
+            self.log(f"resuming training from step {resume_step}")
+            if latest:
+                os.replace(latest, init)
+            self.resume["train_step"] = resume_step
+            self.save_resume()
+            cmd += ["--start-iter", str(resume_step)]
 
         def watch():
             seen = set()
@@ -271,9 +369,9 @@ class Job:
                 left = s.get("eta_left")
                 if left is not None:
                     total = (time.time() - start) + (left - (time.time() - s["eta_at"]))
-                    f_now = (time.time() - start) / max(1, total) * hardware.train_fraction(self.steps)
                 else:
-                    f_now = (time.time() - start) / max(1, s["est"]) * hardware.train_fraction(self.steps)
+                    total = s["est"]
+                f_now = self.train_frac0 + (time.time() - start) / max(1, total) * (frac_end - self.train_frac0)
                 step = inverse_fraction(f_now)
                 with self.lock:
                     self.status["train_step"] = max(self.status["train_step"], min(step, self.steps - 1))
@@ -281,14 +379,16 @@ class Job:
                 stop.wait(2)
 
         threads = [threading.Thread(target=watch, daemon=True), threading.Thread(target=tick, daemon=True)]
-        for t in threads:
-            t.start()
-        try:
-            self.run(cmd, cwd=cache, env=env)
-        finally:
-            stop.set()
+        if resume_step < self.steps:
             for t in threads:
-                t.join(timeout=30)
+                t.start()
+            try:
+                self.run(cmd, cwd=cache, env=env)
+            finally:
+                stop.set()
+                for t in threads:
+                    if t.is_alive():
+                        t.join(timeout=30)
         final = os.path.join(out, f"splat_{self.steps}.ply")
         if not os.path.exists(final):
             cands = sorted(glob.glob(os.path.join(out, "splat_*.ply")))
@@ -299,6 +399,8 @@ class Job:
             self.checkpoint(final, self.steps, start)
         os.replace(final, os.path.join(self.proj, "scene.ply"))
         shutil.rmtree(out, ignore_errors=True)  # older checkpoints
+        if os.path.exists(init):
+            os.remove(init)
         self.train_s = time.time() - start
         self.set(train_step=self.steps)
         self.end(2)
@@ -310,17 +412,21 @@ class Job:
         self.splat_count = total
         # measured speed so far -> remaining time on the profile
         frac_now, frac_end = hardware.train_fraction(step), hardware.train_fraction(self.steps)
-        total_est = elapsed / max(1e-3, frac_now) * frac_end
+        total_est = elapsed / max(1e-3, frac_now - self.train_frac0) * (frac_end - self.train_frac0)
         self.stage(2, step / self.steps, eta_left=max(0, total_est - elapsed), eta_at=time.time())
         with self.lock:
             self.status["train_step"] = step
             self.status["preview"] = {"step": step, "splats": total, "updated": time.time()}
         self.log(f"checkpoint step {step}: {total} splats ({kept} visible) after {elapsed:.0f}s; "
                  f"training ETA {max(0, total_est - elapsed):.0f}s")
+        self.resume["train_step"] = step
+        self.resume["train_prior_s"] = self.status["stages"][2].get("prior_s", 0) + elapsed
+        self.save_resume()
 
     def stage_finish(self):
         self.begin(3)
-        convert(os.path.join(self.proj, "scene.ply"), os.path.join(self.proj, "scene.splat"))
+        convert(os.path.join(self.proj, "scene.ply"), os.path.join(self.proj, "scene.splat.tmp"))
+        os.replace(os.path.join(self.proj, "scene.splat.tmp"), os.path.join(self.proj, "scene.splat"))
         if os.path.exists(os.path.join(self.proj, "preview.splat")):
             os.remove(os.path.join(self.proj, "preview.splat"))
         self.stage(3, 0.3)
@@ -340,6 +446,8 @@ class Job:
         out = os.path.join(self.proj, "flyaround.mp4")
         port = free_port()
         prof = os.path.join(self.proj, ".chrome_profile")
+        shutil.rmtree(prof, ignore_errors=True)  # may be left over from a power cut
+        shutil.rmtree(frames_dir, ignore_errors=True)
         server = subprocess.Popen(PY + [os.path.join(ROOT, "tools", "viewer", "serve.py"), "--port", str(port),
                                         "--frames-dir", frames_dir, "--video", out],
                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -381,15 +489,23 @@ class Job:
         threading.Thread(target=status_loop, daemon=True).start()
         self.log(f"job start: {json.dumps(self.cfg)}")
         self.log(f"machine: {json.dumps({k: self.info[k] for k in ('os', 'arch', 'gpu', 'ram_gb', 'cpu_cores')})}")
-        self.n_frames = 0
+        if self.info["os"] == "Darwin":  # keep the Mac from idle-sleeping mid-job; ends when this process does
+            subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())])
+        self.n_frames = self.resume.get("n_frames", 0)
+        self.registered = self.resume.get("registered", 0)
+        done = self.resume.get("stages", {})
+        if self.resumed:
+            self.log(f"continuing; already finished: {', '.join(done) or 'nothing'}")
         try:
-            self.stage_frames()
-            self.stage_colmap()
-            self.stage_train()
-            self.stage_finish()
-            hardware.save_calibration(self.status["stages"][1]["end"] - self.status["stages"][1]["start"],
-                                      self.n_frames, self.train_s, self.steps)
+            for key, run in (("frames", self.stage_frames), ("colmap", self.stage_colmap),
+                             ("train", self.stage_train), ("finish", self.stage_finish)):
+                if key not in done:
+                    run()
+            if not self.resumed:  # an interrupted run's timings would skew future estimates
+                hardware.save_calibration(self.status["stages"][1]["end"] - self.status["stages"][1]["start"],
+                                          self.n_frames, self.train_s, self.steps)
             self.set(state="done", message="Done!", progress=1.0)
+            os.sync()  # results are on disk before the queue moves on
         except Exception as e:
             self.log(f"FAILED: {e!r}")
             self.set(state="failed", error=str(e), message="Failed")
@@ -405,7 +521,7 @@ class Job:
             "machine": {k: self.info[k] for k in ("os", "arch", "gpu", "ram_gb", "cpu_cores", "gpu_factor")},
             "settings": {"steps": self.steps, "target_frames": TARGET_FRAMES, "video": self.cfg["video"],
                          "video_seconds": self.cfg["video_seconds"]},
-            "frames_kept": self.n_frames, "frames_registered": getattr(self, "registered", None),
+            "resumed": self.resumed, "frames_kept": self.n_frames, "frames_registered": self.registered,
             "splat_count": getattr(self, "splat_count", None),
             "peak_tool_mem_mb": round(self.peak_mem_mb),
             "total_s": round(time.time() - self.t0),
@@ -481,4 +597,12 @@ if __name__ == "__main__":
         os._exit(1)
 
     signal.signal(signal.SIGTERM, on_term)
+
+    def parent_watch():  # never outlive the app, even if it was force-killed
+        parent = os.getppid()
+        while os.getppid() == parent:
+            time.sleep(2)
+        on_term()
+
+    threading.Thread(target=parent_watch, daemon=True).start()
     job.main()

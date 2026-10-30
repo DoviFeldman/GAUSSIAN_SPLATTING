@@ -71,15 +71,26 @@ That installs everything inside the folder and adds a **Splat Studio icon to you
 
 **Use it:**
 1. Click the **Splat Studio** icon in the Dock.
-2. Drag a video onto the window (or click **Choose a video**).
-3. Pick **Full quality** (~1 h 10 min on an M5) or **Quick test** (~20 min, already looks good) and press **Make my 3D splat**.
+2. Drag in **one or several videos** (or click **Choose videos**). Add more any time, even while it's working.
+3. Each video in the queue shows its estimate. Pick **Full** (~1 h 10 min on an M5) or **Quick** (~20 min, already looks good), reorder with ▲▼, and press **Start**.
 4. Leave it running. After a few minutes a low-res preview appears that you can already drag around.
-5. When it's done, the 3D scene opens. Drag to orbit, scroll to zoom, and watch the fly-around video or download the files.
+5. When a video finishes, its 3D scene is saved and listed under **Your splats**. Drag to orbit, scroll to zoom, watch the fly-around video or download the files.
+
+![The Splat Studio queue](docs/queue.jpg)
+
+**The queue is built to be interrupted**
+- **One video at a time, with a clean slate.** Each video runs in its own processes. Before the next one starts, the app confirms all of them have exited, so RAM and GPU memory can't build up from video to video.
+- **Finished videos are safe.** Each one is written to disk as soon as it's done. Pausing, a crash or a dead battery can't touch them.
+- **Pause stops the work right away** and frees your RAM and GPU. **Resume** continues from the last finished step, and training continues from its last checkpoint (saved every 1,000–2,500 training steps, so you lose a few minutes at most).
+- **After a dead battery or a crash,** open the app: the queue is still there, paused, and waits for you to press **Resume**. It won't start using your GPU by surprise.
+- **Closing the window pauses the queue** the same way, and it's still there next time.
+- If one video fails, the queue moves on to the next. The failed one shows up under **Your splats** with **Try again**.
+- The queue pauses itself if your disk drops below 4 GB free.
 
 **Good to know**
 - **Closing the window stops everything** within seconds (training, GPU work, the background server). If a job is still running, it asks first.
-- **Closing a tab frees its 3D viewer.** Closing the tab of a job that's still running offers to stop that job.
-- Only one video processes at a time, which keeps your GPU and RAM sane.
+- **Only the tab you're looking at keeps a 3D viewer loaded**, so lots of open tabs can't pile up GPU memory. Closing the tab of a job that's still running offers to stop that job.
+- While a video is processing, the Mac won't idle-sleep. Closing the lid still sleeps it, and the job should carry on when you open it again (not yet tested through a real sleep).
 - The time estimate starts from your chip type and corrects itself as it runs. After your first finished job, it uses your computer's real measured speed.
 - If your computer can't do it (Intel Mac, Linux without a Vulkan GPU driver, under 8 GB RAM), the app says so right at the top.
 - Files live in `~/GaussianSplatting/projects/<date>-<name>/`: `scene.ply` (full quality), `scene.splat` (small, for sharing),
@@ -208,8 +219,8 @@ phone video ──► extract_frames.py ──► COLMAP ──► Brush ──�
 | Path | What it does |
 |---|---|
 | `setup.sh` | One-time install: Python venv + Brush (checksum-verified) + the app icon. Mac and Linux |
-| `app/studio.py` | Splat Studio's local server: uploads, starting/stopping jobs, history, auto-shutdown when the window closes |
-| `app/pipeline.py` | Runs one job (all the steps below), with live progress, ETA, previews and logs |
+| `app/studio.py` | Splat Studio's local server: uploads, the saved queue, starting/stopping jobs, history, auto-shutdown when the window closes |
+| `app/pipeline.py` | Runs one video in its own process (all the steps below), with live progress, ETA, previews, logs and resume after an interruption |
 | `app/hardware.py` | "Can this computer do it?" checks and time estimates (self-calibrating) |
 | `app/ui/index.html` | The Splat Studio interface |
 | `app/launch.sh`, `app/install_app.sh` | Dock / app-menu launcher and its installer |

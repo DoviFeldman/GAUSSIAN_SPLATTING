@@ -69,14 +69,26 @@
   .alert.warn { background: #2a2414; border: 1px solid #5c4a23; color: #ffe7a8; }
   .alert ul { margin: 6px 0 0; padding-left: 20px; }
 
-  .ready { display: flex; gap: 18px; align-items: center; margin-top: 18px; }
-  .ready img { width: 120px; height: 160px; object-fit: cover; border-radius: 10px; background: #000; flex-shrink: 0; }
-  .ready h3 { margin: 0 0 4px; font-size: 18px; }
-  .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0 12px; }
-  .choice { text-align: left; padding: 12px 14px; border-radius: 11px; background: var(--panel2); border: 2px solid transparent; }
-  .choice.sel { border-color: var(--accent); }
-  .choice b { display: block; }
-  .choice small { color: var(--muted); }
+  .uploading { margin-top: 12px; font-size: 14px; color: var(--muted); }
+  .queue { margin-top: 18px; }
+  .qhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  .qhead h3 { margin: 0; font-size: 18px; }
+  .qhead .total { color: var(--muted); font-size: 14px; flex: 1; min-width: 140px; }
+  .qnote { color: var(--muted); font-size: 13px; margin: 2px 0 10px; }
+  .qrow { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+  .qrow img { width: 54px; height: 54px; object-fit: cover; border-radius: 8px; background: #000; cursor: pointer; }
+  .qname { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+  .qsub { font-size: 13px; color: var(--muted); }
+  .qsub b { color: var(--accent2); font-weight: 600; }
+  .qbar { height: 4px; background: var(--panel2); border-radius: 4px; overflow: hidden; margin-top: 5px; }
+  .qbar div { height: 100%; background: var(--accent); transition: width .8s; }
+  .qctl { display: flex; align-items: center; gap: 4px; }
+  .seg { display: inline-flex; background: var(--panel2); border-radius: 8px; padding: 2px; margin-right: 6px; }
+  .seg button { background: none; color: var(--muted); padding: 3px 9px; border-radius: 6px; font-size: 12.5px; }
+  .seg button.sel { background: #343946; color: var(--text); }
+  .icon { width: 28px; height: 28px; border-radius: 7px; background: none; color: var(--muted); }
+  .icon:hover:not(:disabled) { background: var(--panel2); color: var(--text); }
+  .icon:disabled { opacity: .25; cursor: default; }
 
   h2.sec { font-size: 17px; margin: 38px 0 12px; color: var(--muted); font-weight: 600; }
   .hist { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
@@ -94,7 +106,7 @@
   .hcard .del { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 8px; background: #000a;
                 color: #ddd; display: none; place-items: center; }
   .hcard:hover .del { display: grid; }
-  .empty { color: var(--muted); font-size: 14px; }
+  .empty { color: var(--muted); font-size: 14px; grid-column: 1 / -1; }
 
   /* project view */
   .proj { display: grid; grid-template-columns: 340px 1fr; height: 100%; }
@@ -154,15 +166,16 @@
         <div id="sysalert"></div>
         <div class="drop" id="drop">
           <div class="big">🎬</div>
-          <h2>Drag a video here</h2>
-          <p>or</p>
-          <button class="btn" id="pick">Choose a video</button>
-          <input type="file" id="file" accept="video/*,.mp4,.mov,.m4v" hidden>
+          <h2>Drag your videos here</h2>
+          <p>one or several; they go into a queue</p>
+          <button class="btn" id="pick">Choose videos</button>
+          <input type="file" id="file" accept="video/*,.mp4,.mov,.m4v" multiple hidden>
         </div>
-        <div id="ready"></div>
+        <div class="uploading" id="uploading"></div>
+        <div class="card queue" id="queue" hidden></div>
         <div class="steps3">
-          <div><b>1 · Add a video</b>20–40 s, walking slowly all the way around something.</div>
-          <div><b>2 · Wait</b>About an hour on a recent Mac. A preview shows up after a few minutes.</div>
+          <div><b>1 · Add videos</b>20–40 s each, walking slowly all the way around something.</div>
+          <div><b>2 · Press Start</b>They run one at a time. Pause whenever you like; finished ones are saved.</div>
           <div><b>3 · Fly around it</b>Drag to orbit, scroll to zoom. You also get a fly-around video.</div>
         </div>
         <details class="tips">
@@ -187,7 +200,7 @@
 const $ = s => document.querySelector(s);
 const api = (p, opt) => fetch(p, opt).then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText); return j; });
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-let SYS = null, PROJECTS = [], pending = null, quality = 'full';
+let SYS = null, PROJECTS = [], QUEUE = null, queueSig = '', followNext = false, active = 'home';
 const tabs = new Map();   // id -> {el, view, timer, poll, status, name}
 
 function dur(s) {
@@ -222,60 +235,101 @@ async function loadSystem() {
 const drop = $('#drop');
 ['dragenter', 'dragover'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('over'); }));
 ['dragleave', 'drop'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove('over'); }));
-drop.addEventListener('drop', ev => ev.dataTransfer.files[0] && upload(ev.dataTransfer.files[0]));
+drop.addEventListener('drop', ev => upload([...ev.dataTransfer.files]));
 addEventListener('dragover', e => e.preventDefault());
 addEventListener('drop', e => e.preventDefault());
 $('#pick').onclick = () => $('#file').click();
-$('#file').onchange = () => $('#file').files[0] && upload($('#file').files[0]);
+$('#file').onchange = () => { upload([...$('#file').files]); $('#file').value = ''; };
 
-async function upload(file) {
+let uploadChain = Promise.resolve(), uploadsLeft = 0;
+function upload(files) {   // one at a time, in the order they were added
   if (SYS && !SYS.supported) return;
-  $('#ready').innerHTML = `<div class="card ready"><div><h3>Reading ${esc(file.name)}…</h3><div class="elapsed">Copying the video and measuring it</div></div></div>`;
-  try {
-    const r = await api('/api/upload?name=' + encodeURIComponent(file.name), { method: 'POST', body: file });
-    pending = r.project; quality = 'full';
-    renderReady(r.warnings);
-    loadProjects();
-  } catch (e) {
-    $('#ready').innerHTML = `<div class="alert bad" style="margin-top:18px">${esc(e.message)}</div>`;
+  const box = $('#uploading');
+  for (const file of files) {
+    uploadsLeft++;
+    uploadChain = uploadChain.then(async () => {
+      box.textContent = `Adding ${file.name}… (copying the video and measuring it${uploadsLeft > 1 ? `, ${uploadsLeft - 1} more after this` : ''})`;
+      try {
+        const r = await api('/api/upload?name=' + encodeURIComponent(file.name), { method: 'POST', body: file });
+        if (r.warnings.length) box.dataset.note = `${r.project.name}: ${r.warnings.join(' ')}`;
+      } catch (e) {
+        box.dataset.note = `${file.name}: ${e.message}`;
+      }
+      uploadsLeft--;
+      box.textContent = uploadsLeft ? '' : (box.dataset.note || '');
+      delete box.dataset.note;
+      await loadQueue();
+    });
   }
 }
 
-function renderReady(warnings = []) {
-  const p = pending, e = p.estimates;
-  $('#ready').innerHTML = `
-    <div class="card ready">
-      <img src="${p.thumb}" alt="">
-      <div style="flex:1;min-width:0">
-        <h3>${esc(p.name)}</h3>
-        <div class="elapsed">${Math.round(p.video_seconds)} s video · estimated on your ${esc(SYS.gpu)}</div>
-        ${warnings.map(w => `<div class="alert warn" style="margin:10px 0 0;padding:8px 12px">${esc(w)}</div>`).join('')}
-        <div class="choices">
-          <button class="choice ${quality === 'full' ? 'sel' : ''}" data-q="full"><b>Full quality · about ${dur(sum(e.full))}</b><small>30,000 training steps. Sharpest result.</small></button>
-          <button class="choice ${quality === 'quick' ? 'sel' : ''}" data-q="quick"><b>Quick test · about ${dur(sum(e.quick))}</b><small>7,000 steps. Softer, but good for checking a video.</small></button>
-        </div>
-        <button class="btn" id="go">Make my 3D splat ▶</button>
-        <button class="btn ghost" id="cancel-ready" style="margin-left:6px">Cancel</button>
-      </div>
-    </div>`;
-  document.querySelectorAll('.choice').forEach(b => b.onclick = () => { quality = b.dataset.q; renderReady(warnings); });
-  $('#go').onclick = start;
-  $('#cancel-ready').onclick = async () => { await api('/api/delete?id=' + pending.id, { method: 'POST' }); pending = null; $('#ready').innerHTML = ''; loadProjects(); };
+// ---------- queue ----------
+const qpost = path => api('/api/queue/' + path, { method: 'POST' });
+
+async function loadQueue() {
+  let q;
+  try { q = await api('/api/queue'); } catch { return; }
+  QUEUE = q;
+  if (followNext && q.current) { followNext = false; const it = q.items.find(i => i.id === q.current); openTab(q.current, it ? it.name : q.current); }
+  const sig = JSON.stringify(q);
+  if (sig !== queueSig) { queueSig = sig; renderQueue(); }
 }
 
-async function start() {
-  try {
-    await api(`/api/start?id=${pending.id}&quality=${quality}`, { method: 'POST' });
-    const p = pending; pending = null; $('#ready').innerHTML = '';
-    openTab(p.id, p.name);
-    loadProjects();
-  } catch (e) { alert(e.message); }
+function renderQueue() {
+  const q = QUEUE, box = $('#queue');
+  box.hidden = !q.items.length && !q.message;
+  const running = !!q.current;
+  const saved = q.items.some(i => i.state === 'paused');
+  const main = !q.items.length ? '' : running ? '<button class="btn ghost" data-q="pause">⏸ Pause</button>'
+    : `<button class="btn" data-q="start">▶ ${saved ? 'Resume' : q.items.length > 1 ? 'Start queue' : 'Make my 3D splat'}</button>`;
+  const n = q.items.length, firstWaiting = running ? 1 : 0;
+  box.innerHTML = `
+    <div class="qhead"><h3>Queue</h3>
+      <div class="total">${n ? `${n} video${n > 1 ? 's' : ''} · about ${dur(q.total_left)} ${running || saved ? 'left' : 'in total'}` : ''}</div>${main}</div>
+    ${q.message ? `<div class="alert warn" style="margin:8px 0">${esc(q.message)}</div>` : ''}
+    <div class="qnote">${running ? 'Add more any time. Pause stops all the work now and frees your RAM and GPU.'
+      : saved ? 'Paused. Finished videos are saved, and the next one picks up where it stopped.'
+      : 'Each video runs by itself, then everything is shut down before the next one starts.'}</div>
+    ${q.items.map((it, i) => {
+      const isRun = it.state === 'running';
+      const sub = isRun ? `<b>${esc(it.stage || 'Starting…')}</b> · ${dur(it.left)} left`
+        : it.state === 'paused' ? `Paused at ${Math.round(it.progress * 100)}% · about ${dur(it.left)} left`
+        : `${Math.round(it.seconds)} s video · about ${dur(it.estimates[it.quality])}`;
+      return `<div class="qrow">
+        <img src="${it.thumb}" alt="" data-open="${it.id}">
+        <div style="min-width:0"><div class="qname" data-open="${it.id}">${esc(it.name)}</div><div class="qsub">${sub}</div>
+          ${isRun || it.state === 'paused' ? `<div class="qbar"><div style="width:${(it.progress * 100).toFixed(1)}%"></div></div>` : ''}</div>
+        <div class="qctl">
+          ${isRun ? '' : `<span class="seg"><button class="${it.quality === 'full' ? 'sel' : ''}" data-qual="full" data-id="${it.id}" title="30,000 training steps. Sharpest. About ${dur(it.estimates.full)}">Full</button><button class="${it.quality === 'quick' ? 'sel' : ''}" data-qual="quick" data-id="${it.id}" title="7,000 training steps. About ${dur(it.estimates.quick)}">Quick</button></span>
+          <button class="icon" title="Move up" data-move="up" data-id="${it.id}" ${i <= firstWaiting ? 'disabled' : ''}>▲</button>
+          <button class="icon" title="Move down" data-move="down" data-id="${it.id}" ${i >= n - 1 ? 'disabled' : ''}>▼</button>`}
+          <button class="icon" title="${isRun ? 'Stop this video' : 'Remove from queue'}" data-remove="${it.id}">✕</button>
+        </div></div>`;
+    }).join('')}`;
 }
+
+$('#queue').addEventListener('click', async ev => {
+  const d = ev.target.dataset;
+  if (d.q === 'start') { followNext = true; await qpost('start').catch(e => alert(e.message)); }
+  else if (d.q === 'pause') { ev.target.disabled = true; ev.target.textContent = 'Stopping…'; await qpost('pause'); }
+  else if (d.qual) await qpost(`quality?id=${d.id}&quality=${d.qual}`);
+  else if (d.move) await qpost(`move?id=${d.id}&dir=${d.move}`);
+  else if (d.remove) {
+    const it = QUEUE.items.find(i => i.id === d.remove);
+    if (it.state === 'running' && !confirm(`Stop "${it.name}"? The next video in the queue starts after it.`)) return;
+    await qpost('remove?id=' + d.remove);
+    closeTab(d.remove, true);
+    loadProjects();
+  }
+  else if (d.open) { const it = QUEUE.items.find(i => i.id === d.open); openTab(d.open, it.name); return; }
+  else return;
+  loadQueue();
+});
 
 // ---------- history ----------
 async function loadProjects() {
   PROJECTS = await api('/api/projects');
-  const list = PROJECTS.filter(p => p.state !== 'ready');  // 'ready' = uploaded but not started yet
+  const list = PROJECTS.filter(p => !['ready', 'queued', 'paused', 'running'].includes(p.state));  // those are in the queue
   $('#hist').innerHTML = list.length ? list.map(p => `
     <div class="hcard" data-id="${p.id}" role="button" tabindex="0">
       ${p.thumb ? `<img src="${p.thumb}" alt="">` : '<div class="noimg"></div>'}
@@ -313,11 +367,14 @@ function renderTabs() {
     show(b.dataset.tab);
   });
 }
-let active = 'home';
+
 function show(id) {
   active = id;
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + id));
-  if (id === 'home') loadProjects();
+  // only the tab you're looking at keeps a 3D viewer loaded, so many open tabs can't pile up GPU memory
+  for (const [tid, t] of tabs) if (tid !== id) unloadFrame(t);
+  if (id === 'home') { loadProjects(); loadQueue(); }
+  else if (tabs.get(id) && tabs.get(id).status) renderStage(id);
   renderTabs();
 }
 
@@ -340,11 +397,12 @@ async function closeTab(id, silent) {
   const t = tabs.get(id);
   if (!t) return;
   if (!silent && t.status && t.status.state === 'running') {
-    if (!confirm(`"${t.name}" is still processing. Stop it? (This ends its GPU work. You'd have to start over.)`)) return;
-    await api('/api/cancel?id=' + id, { method: 'POST' });
+    if (!confirm(`"${t.name}" is still processing. Closing this tab stops it, and the next video in the queue starts. Stop it?`)) return;
+    await qpost('remove?id=' + id);
+    loadQueue();
   }
   clearInterval(t.poll); clearInterval(t.tick);
-  if (t.frame) t.frame.src = 'about:blank';   // frees the viewer's GPU memory
+  unloadFrame(t);
   t.view.remove();
   tabs.delete(id);
   if (active === id) show('home'); else renderTabs();
@@ -363,7 +421,7 @@ async function poll(id) {
   renderSide(id);
   renderStage(id);
   if (prevState !== st.state) { renderTabs(); if (st.state !== 'running') loadProjects(); }
-  if (st.state !== 'running' && st.state) { clearInterval(t.poll); t.poll = null; }
+  if (['done', 'failed', 'cancelled', 'interrupted'].includes(st.state)) { clearInterval(t.poll); t.poll = null; }
 }
 
 function tickTimer(id) {
@@ -386,14 +444,18 @@ function renderSide(id) {
              <div class="pbar"><div style="width:${(st.progress * 100).toFixed(1)}%"></div></div>`;
   } else if (st.state === 'done') {
     html += `<div class="elapsed" style="margin:6px 0 16px">Finished in ${dur(st.elapsed)} ✓</div>`;
+  } else if (st.state === 'queued') {
+    html += `<div class="elapsed" style="margin:6px 0 16px">Waiting in the queue.</div>`;
+  } else if (st.state === 'paused') {
+    html += `<div class="elapsed" style="margin:6px 0 16px">Paused. Progress is saved, and it picks up here when the queue resumes.</div>`;
   } else if (st.state) {
     html += `<div class="alert bad" style="margin:12px 0 16px">${st.state === 'failed' ? '<b>Something went wrong.</b><br>' + esc(st.error || '')
-           : st.state === 'cancelled' ? 'Stopped.' : 'This job was interrupted (the app was closed while it ran).'}</div>`;
+           : st.state === 'cancelled' ? 'Stopped. "Try again" continues from the saved progress.' : 'This job was interrupted (the app was closed while it ran). "Try again" continues from the saved progress.'}</div>`;
   }
   if (st.stages) {
     html += '<ul class="slist">' + st.stages.map((s, i) => {
       const cls = s.end ? 'done' : s.start && st.state === 'running' ? 'active' : 'pending';
-      const tm = s.end ? dur(s.end - s.start) : cls === 'active' ? '' : '~' + dur(s.est);
+      const tm = s.end ? dur(s.end - s.start + (s.prior_s || 0)) : cls === 'active' ? '' : '~' + dur(s.est);
       let lbl = esc(s.label);
       if (s.key === 'train' && cls === 'active') lbl += `<div class="elapsed">step ~${st.train_step.toLocaleString()} of ${st.train_total.toLocaleString()}</div>`;
       return `<li class="${cls}"><span class="ic">${cls === 'done' ? '✓' : ''}</span><span class="lbl">${lbl}</span><span class="tm">${tm}</span>
@@ -402,37 +464,41 @@ function renderSide(id) {
   }
   if (st.warnings && st.warnings.length) html += `<div class="alert warn" style="font-size:13px">${st.warnings.map(esc).join('<br>')}</div>`;
   html += '<div class="actions">';
-  if (st.state === 'running') html += `<button class="btn danger" data-act="stop">Stop</button>`;
+  if (st.state === 'running') html += `<button class="btn ghost" data-act="pause">⏸ Pause queue</button><button class="btn danger" data-act="stop">Stop this video</button>`;
+  if (st.state === 'paused' || st.state === 'queued') html += `<button class="btn" data-act="resume">▶ ${st.state === 'paused' ? 'Resume' : 'Start'} queue</button>`;
   if (st.state === 'done') {
     if (p.video) html += `<button class="btn" data-act="video">▶ Fly-around video</button>`;
     html += `<a class="btn ghost" href="${base}scene.ply" download="${esc(p.name)}.ply">Download .ply</a>
              <a class="btn ghost" href="${base}scene.splat" download="${esc(p.name)}.splat">Download .splat</a>`;
   }
-  if (st.state && st.state !== 'running' && st.state !== 'done') html += `<button class="btn ghost" data-act="retry">Try again</button>`;
+  if (['failed', 'cancelled', 'interrupted'].includes(st.state)) html += `<button class="btn ghost" data-act="retry">Try again</button>`;
   html += `</div><div class="small">Logs for debugging: <a href="${base}logs/pipeline.log" target="_blank">pipeline.log</a> ·
            <a href="${base}logs/metrics.csv" target="_blank">metrics.csv</a>${st.state !== 'running' ? ` · <a href="${base}summary.json" target="_blank">summary.json</a>` : ''}</div>`;
   side.innerHTML = html;
   side.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
     const a = b.dataset.act;
-    if (a === 'stop' && confirm('Stop processing this video?')) { await api('/api/cancel?id=' + id, { method: 'POST' }); poll(id); }
+    if (a === 'stop' && confirm('Stop processing this video? The next video in the queue starts after it.')) { await qpost('remove?id=' + id); poll(id); loadQueue(); }
+    if (a === 'pause') { b.disabled = true; b.textContent = 'Stopping…'; await qpost('pause'); poll(id); loadQueue(); }
+    if (a === 'resume') { await qpost('start').catch(e => alert(e.message)); poll(id); loadQueue(); }
     if (a === 'video') openVideo(p.video);
     if (a === 'retry') {
-      try { await api(`/api/start?id=${id}&quality=${p.quality || 'full'}`, { method: 'POST' }); t.poll = t.poll || setInterval(() => poll(id), 2000); poll(id); }
+      try { await qpost(`add?id=${id}&quality=${p.quality || 'full'}&start=1`); t.poll = t.poll || setInterval(() => poll(id), 2000); poll(id); loadQueue(); }
       catch (e) { alert(e.message); }
     }
   });
 }
 
 function renderStage(id) {
+  if (id !== active) return;   // hidden tabs keep no viewer loaded
   const t = tabs.get(id), st = t.status, area = t.view.querySelector('.stage-area');
   const base = `/projects/${id}/`;
-  let want = null, note = '';
+  let want = null;
   if (st.state === 'done' && st.project && st.project.scene) want = 'final';
   else if (st.preview) want = 'preview';
   if (!want) {
     if (t.shown !== 'waiting:' + st.state) {
       t.shown = 'waiting:' + st.state;
-      area.innerHTML = st.state === 'running'
+      area.innerHTML = ['running', 'queued', 'paused'].includes(st.state)
         ? `<div class="waiting"><div><div class="big">🧊</div><b>A low-res preview appears here</b><br>a few minutes into training. You can drag it around while the full version keeps cooking.</div></div>`
         : `<div class="waiting"><div>No 3D scene for this one.</div></div>`;
       t.frame = null;
@@ -461,10 +527,17 @@ function loadFrame(t, area, src, shown) {
   f.src = src; area.appendChild(f);
   if (shown.startsWith('preview')) {
     const n = document.createElement('div'); n.className = 'pv-note';
-    n.textContent = `Low-res preview (step ${shown.split(':')[1].replace(/\B(?=(\d{3})+(?!\d))/g, ',')}). Still training…`;
+    n.textContent = `Low-res preview (step ${shown.split(':')[1].replace(/\B(?=(\d{3})+(?!\d))/g, ',')}).${t.status.state === 'running' ? ' Still training…' : ''}`;
     area.appendChild(n);
   }
   t.frame = f; t.shown = shown;
+}
+
+function unloadFrame(t) {
+  if (!t.frame) return;
+  t.frame.src = 'about:blank';   // frees the viewer's GPU memory
+  t.view.querySelector('.stage-area').innerHTML = '';
+  t.frame = null; t.shown = null;
 }
 
 function openVideo(src) { $('#mvideo').src = src; $('#modal').classList.add('show'); }
@@ -472,17 +545,15 @@ function closeVideo() { $('#mvideo').pause(); $('#mvideo').src = ''; $('#modal')
 $('#modal').onclick = e => { if (e.target.id === 'modal') closeVideo(); };
 
 // ---------- lifecycle ----------
-// The server shuts down (and stops all GPU work) a few seconds after this window closes (pagehide -> /api/bye),
-// or ~2.5 min after heartbeats stop. A reload sends a fresh heartbeat in time, so it doesn't shut down.
+// The server shuts down (and stops all GPU work; the queue waits for Resume) a few seconds after this window
+// closes (pagehide -> /api/bye), or ~2.5 min after heartbeats stop. A reload sends a fresh heartbeat in time.
 async function beat() {
-  try {
-    const r = await api('/api/heartbeat', { method: 'POST' });
-    for (const id of r.running) if (!tabs.has(id)) { const p = PROJECTS.find(x => x.id === id); openTab(id, p ? p.name : id); }
-  } catch { }
+  try { await api('/api/heartbeat', { method: 'POST' }); } catch { }
+  loadQueue();
 }
 addEventListener('pagehide', () => navigator.sendBeacon('/api/bye'));
 addEventListener('beforeunload', e => {
-  if ([...tabs.values()].some(t => t.status && t.status.state === 'running')) { e.preventDefault(); e.returnValue = ''; }
+  if (QUEUE && QUEUE.current) { e.preventDefault(); e.returnValue = ''; }
 });
 
 (async () => {
@@ -490,6 +561,7 @@ addEventListener('beforeunload', e => {
   await loadSystem();
   await loadProjects();
   beat(); setInterval(beat, 5000);
+  setInterval(() => { if (active === 'home') loadQueue(); }, 2000);
 })();
 </script>
 </body>

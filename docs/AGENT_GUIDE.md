@@ -8,9 +8,10 @@ Read this before changing Splat Studio or diagnosing a run. Everything is local 
 Dock icon / app menu
   └─ app/launch.sh ── starts ──► app/studio.py  (HTTP server on 127.0.0.1:8770, stdlib + psutil)
         │                           ├─ serves app/ui/index.html (the UI) and tools/viewer/ (WebGL splat viewer)
-        │                           ├─ /api/upload   saves the video to projects/<id>/, probes it, estimates time
-        │                           ├─ /api/start    spawns app/pipeline.py projects/<id>  (own process group)
-        │                           ├─ /api/cancel   SIGTERM to that process group (Brush/COLMAP/Chrome die with it)
+        │                           ├─ /api/upload   saves the video to projects/<id>/, probes it (app/probe_video.py, short-lived), adds it to the queue
+        │                           ├─ scheduler     runs queue items[0] as app/pipeline.py projects/<id> (own process group);
+        │                           │                when it exits, release_job confirms no tool is left, then the next starts
+        │                           ├─ /api/queue    state; /api/queue/{start,pause,add,remove,move,quality} change it
         │                           └─ watchdog: window closed (/api/bye, 8 s grace) or no heartbeat for 150 s ⇒ stop all jobs and exit
         └─ opens Chrome --app (separate profile app_data/chrome-profile) or the default browser;
            kills that window process after the server exits
@@ -24,6 +25,27 @@ app/pipeline.py  (one job)
 app/hardware.py  detection, support checks, time estimates, calibration
 ```
 
+## Queue and resume rules
+
+- `app_data/queue.json` is the queue, fsynced on every change: `{paused, items: [{id, quality}], message}`; `items[0]` runs next.
+  An item leaves it only when its job ends `done` or `failed`, or the user removes it. So after a pause, crash or power
+  cut the running video is still first. On startup the queue always loads paused: GPU work needs a Resume press.
+- Each video is its own `pipeline.py` process, so its memory goes back to the OS on exit. The server stays small (~20 MB)
+  because it never loads OpenCV or video data. `studio.log` records RAM available and server size at every job
+  start and release; use those lines to check for bloat.
+- `projects/<id>/resume.json` records finished stages. A re-run skips them. Training continues from the newest complete
+  checkpoint (`ply_complete` rejects files a power cut left partial): it's moved to `dataset/init.ply`, and Brush runs with
+  `--start-iter N`. Brush's optimizer state restarts, so `TRAIN_PROFILE` timing is approximate after a resume.
+  Changing quality on a part-done video discards training only; frames and cameras are reused.
+- Pause = SIGTERM the group and keep the item. Stop/remove = same, and drop the item (a never-started video's folder is deleted).
+  A job that dies without reporting while the queue is running is marked `failed` and the queue moves on; Try again resumes it.
+- `pipeline.py` exits by itself if the server disappears (`parent_watch`). Server startup also kills leftover `pipeline.py` processes.
+- `our_processes` only matches our tools (Brush, our scripts, the job's Chrome profile), never other programs with a project path in their arguments.
+- The watchdog treats a >30 s gap in its own loop as the computer waking from sleep, not as a closed window.
+- Fast tests: `SPLAT_TARGET_FRAMES=40 SPLAT_QUICK_STEPS=1500` when starting `studio.py` gives ~2.5 min per video.
+  Simulate a power cut with `kill -STOP <server>`, `kill -9` on `pipeline.py` and `brush_app`, then `kill -9 <server>`
+  (server PID is in `app_data/studio.json`). Kill the server first or it will see a crashed job and mark it failed.
+
 ## Where to look after a run (projects/<id>/)
 
 | File | What's in it |
@@ -34,11 +56,12 @@ app/hardware.py  detection, support checks, time estimates, calibration
 | `logs/metrics.csv` | Every 15 s: stage, stage progress, estimated training step, tool memory MB (macOS `footprint`, which includes GPU memory), system RAM %, CPU %, GPU utilization %, GPU memory MB (macOS `ioreg` / Linux `nvidia-smi`) |
 | `logs_stdout.txt` | Python tracebacks from pipeline.py itself (if it crashed) |
 | `project.json` | Upload metadata + the estimate shown to the user |
+| `resume.json` | Finished stages, training step reached, time spent; `summary.json` says `"resumed": true` if this run continued from it |
 | `scene.ply`, `scene.splat`, `flyaround.mp4`, `camera_path.json` | Results |
 | `images/`, `colmap/`, `dataset/` | Intermediate data (frames, COLMAP database + sparse model, undistorted dataset) |
 
 App-wide (`app_data/`): `studio.log` (server: starts, uploads, job start/stop, shutdown reason),
-`launch.log` (launcher), `calibration.json` (this machine's measured speeds, which replace the built-in guesses).
+`launch.log` (launcher), `queue.json` (the queue), `calibration.json` (this machine's measured speeds, which replace the built-in guesses; interrupted runs don't update it).
 
 ### Quick diagnosis commands
 ```bash
@@ -60,7 +83,8 @@ tail -20 app_data/studio.log
 | `brush_app failed (exit code …)` | GPU/driver problem or out of memory | Check metrics.csv memory near the end; add `--max-splats 1500000 --max-resolution 1280` to the Brush command in `stage_train` |
 | Training ETA way off | GPU factor guess wrong for this chip | Fixed automatically after one finished job (calibration.json); or edit `APPLE_GPU` in hardware.py |
 | `Fly-around video failed` | Chrome missing or headless WebGL issue | The 3D scene is still fine; check `chrome` in /api/system |
-| State `interrupted` | App closed mid-job (by design, closing the window stops all work) | "Try again" in the UI |
+| State `paused` / `interrupted` | App closed or stopped mid-job (by design, closing the window stops all work) | Resume the queue / "Try again" in the UI; both continue from saved progress |
+| Queue paused with a disk message | Under `MIN_FREE_DISK_GB` free | Free up space (old `projects/*/images`, `colmap`, `dataset` can go), then Resume |
 
 ## Tuning knobs (all in plain code)
 
@@ -76,7 +100,9 @@ tail -20 app_data/studio.log
 venv/bin/python -I app/studio.py --port 8770 --no-browser &      # then open http://127.0.0.1:8770
 # or headless, without the UI:
 curl -s -X POST --data-binary @video.mp4 "http://127.0.0.1:8770/api/upload?name=test.mp4"   # returns project id
-curl -s -X POST "http://127.0.0.1:8770/api/start?id=<id>&quality=quick"
+curl -s -X POST "http://127.0.0.1:8770/api/queue/quality?id=<id>&quality=quick"
+curl -s -X POST "http://127.0.0.1:8770/api/queue/start"
+curl -s "http://127.0.0.1:8770/api/queue" | python3 -m json.tool
 curl -s "http://127.0.0.1:8770/api/status?id=<id>" | python3 -m json.tool
 ```
 Without a UI open, the server exits 3 minutes after starting (no heartbeat). Send
