@@ -1,0 +1,17 @@
+I have a 3D Gaussian splat of a small rusty 3D-printed toy pirate ship sitting on a weathered wooden picnic table, made from a phone video. I want to use Blender (it's installed and open on this Mac, and the Blender MCP tools should be connected) to remove the wooden table and everything else around the ship, and put the ship on a beautiful endless ocean instead, then render a short video.
+
+Files (all in ~/GaussianSplatting):
+- Full-quality splat: projects/pirate_ship/splat/splat_30000.ply (318 MB, 1.35M splats, standard 3DGS PLY: x,y,z, f_dc_0-2, f_rest_*, opacity (logit), scale_0-2 (log), rot_0-3 (quaternion w,x,y,z)). It's exported by Brush in COLMAP's coordinate system (y points down, z points forward).
+- Small version: example/pirate_ship.splat (40 MB, antimatter15 .splat format)
+- Camera path/orientation info: projects/pirate_ship/camera_path.json. Its "target" is the ship's center and "up" is the table's surface normal in splat coordinates, which is useful for finding and leveling the ship.
+- My existing rough Blender importer, which turns the splat into colored points: scripts/blender_import_splat.py (read it first)
+- The repo README.md explains the whole pipeline; docs/AGENT_GUIDE.md has more detail.
+
+What I'd like:
+1. Get the ship into Blender looking as good as possible. Blender 5.1 can't render true Gaussian splats by itself. Either improve my point importer (e.g. stretched/rotated ellipsoid instances with soft alpha falloff, using the scale and rotation data) or, if you think it's worth it, install the free KIRI Engine "3DGS Render" add-on (github.com/Kiri-Innovation/3dgs-render-blender-addon; it's a ~770 MB download, so ask me first). Tell me which you picked and why.
+2. Isolate just the ship: crop away the table, the grass and the background splats. Use camera_path.json "target"/"up" to find the ship and the table plane, keep only splats above the table within a radius around the target, and check by rendering previews from a few angles. Some splats right at the hull bottom will be table-colored; trim them carefully.
+3. Orient the ship upright (Blender is Z-up), at a sensible real-world scale (it's a toy, maybe 8–10 cm, but scale it up so it reads like a real ship on the water).
+4. Build a beautiful endless sea: an ocean surface (Blender's Ocean modifier or a displaced plane fading into a horizon), a nice sky (e.g. Nishita sky / sunset or golden hour), the ship sitting in the water with a little bobbing, and maybe a wake or foam if it's easy.
+5. Render a short (~8–10 s) orbiting camera video and a couple of still images, saved in ~/GaussianSplatting/projects/pirate_ship/sea/. Keep render times reasonable (this is an M5 MacBook with 16 GB RAM; EEVEE is fine).
+
+Rules: don't delete or overwrite any existing files. Work in a new .blend saved to that sea/ folder. Show me preview renders along the way, and ask before any big downloads.
