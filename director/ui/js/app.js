@@ -84,6 +84,7 @@ function frame(now) {
   requestAnimationFrame(frame);  // first, so one bad frame can't stop the loop
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
+  if (S.exporting) return;  // the export drives the camera itself; touching it here mixed your view into the video
   VP.tick(dt);
   P.tickPlayback();
   if (S.aimKey) {
@@ -117,6 +118,10 @@ function poolRender() {
       ${o.dot ? `<span class="dot" style="background:${o.dot}"></span>` : `<span class="pic">${o.icon}</span>`}
       <span class="pn">${esc(o.name)}</span><span class="pm">${o.meta || ''}</span>${o.eye != null ? `<button class="eye ${o.eye ? '' : 'off'}" data-eye="${esc(o.id)}" title="Show / hide">${o.eye ? '◉' : '○'}</button>` : ''}</div>`;
   pool.innerHTML = `
+    <div class="ph">Films <button id="newFilmBtn" title="Start a new, empty film">+ New</button></div>
+    ${filmList.map(f => `<div class="pi film ${f.name === film.name ? 'sel' : ''}" data-k="film" data-id="${esc(f.name)}" title="${f.name === film.name ? 'Open now' : 'Click to open'} · ${esc(f.splats.join(', ') || 'no splats')} · ${f.clips} clips">
+        <span class="pic">${f.name === film.name ? '▶' : '🎬'}</span><span class="pn">${esc(f.name)}</span>
+        <span class="fa"><button data-fa="dup" title="Duplicate: make a copy and edit that">⧉</button><button data-fa="ren" title="Rename">✎</button><button data-fa="del" title="Delete (kept in films/.trash)">✕</button></span></div>`).join('')}
     <div class="ph">Splats <button id="addSplat" title="Add a splat from your projects">+ Add</button></div>
     ${film.splats.map(sp => item({ k: 'splat', id: sp.id, name: sp.name, icon: '✦', meta: '', eye: sp.visible !== false, sel: S.sel.kind === 'splat' && S.sel.id === sp.id })).join('') || '<div class="pe">No splats yet. Click + Add.</div>'}
     <div class="ph">Paths <span class="phm">drag to timeline</span></div>
@@ -125,9 +130,12 @@ function poolRender() {
     <div class="ph">Video &amp; music <button id="addMedia" title="Import video or music files">+ Import</button></div>
     ${film.media.map(m => item({ k: 'media', id: m.name, name: m.name, icon: m.kind === 'audio' ? '♪' : '🎞', meta: m.duration ? m.duration.toFixed(1) + 's' : '', drag: true, title: 'Drag to the timeline, or double-click to add it' })).join('') || '<div class="pe">Import clips or songs, or drop files here.</div>'}`;
   $('addSplat').onclick = splatPicker;
+  $('newFilmBtn').onclick = () => askName('New film', `Film ${filmList.length + 1}`, async n => { await save(); await newFilm(n); });
   $('addMedia').onclick = () => $('fileIn').click();
 }
 pool.addEventListener('click', e => {
+  const fa = e.target.closest('[data-fa]'), fi = e.target.closest('.pi.film');
+  if (fi) { filmAction(fa?.dataset.fa || 'open', fi.dataset.id); return; }
   const eye = e.target.closest('[data-eye]');
   if (eye) { const sp = S.film.splats.find(s => s.id === eye.dataset.eye); sp.visible = sp.visible === false; VP.applySplatProps(); commit(); return; }
   const it = e.target.closest('.pi');
@@ -276,25 +284,85 @@ function afterLoad() {
     let nav = null;
     try { nav = JSON.parse(localStorage.getItem('director:nav:' + S.film.name)); } catch {}
     if (nav) VP.setNavState(nav); else if (S.film.splats[0]) VP.startView(S.film.splats[0]);
+    if (nav?.playhead) TL.seek(Math.min(nav.playhead, M.filmDuration(S.film)));  // back where you left off
   });
   VP.layout();
 }
 let navReady = false;  // don't save the camera before the film's view has been set up
-setInterval(() => { if (navReady) try { localStorage.setItem('director:nav:' + S.film.name, JSON.stringify(VP.navState())); } catch {} }, 3000);
+setInterval(() => { if (navReady) try { localStorage.setItem('director:nav:' + S.film.name, JSON.stringify({ ...VP.navState(), playhead: S.playhead })); } catch {} }, 3000);
 async function newFilm(name) {
   S.film = M.newFilm(name);
   afterLoad();
   await save();
 }
-on('rename', async v => {
-  const name = v.replace(/[^A-Za-z0-9 _.-]+/g, '_').trim();
-  if (!name || name === S.film.name) return;
-  const films = await (await fetch('/api/films')).json();
-  if (films.some(f => f.name === name)) { toast('A film with that name already exists'); return; }
-  S.film.name = name;
-  $('filmName').textContent = name;
-  await save();
-});
+// ---------- the film list (left panel): open, duplicate, rename, delete ----------
+let filmList = [];
+async function refreshFilms() {
+  try { filmList = await (await fetch('/api/films')).json(); } catch { return; }
+  poolRender();
+}
+const cleanName = v => v.replace(/[^A-Za-z0-9 _.-]+/g, '_').trim().slice(0, 60);
+function askName(title, value, done) {
+  const dlg = $('dialog');
+  dlg.innerHTML = `<div class="dlg"><h3>${esc(title)}</h3><div class="f"><label>Name</label><input id="askIn" class="wide" value="${esc(value)}"></div>
+    <div class="btns"><button id="askOk" class="primary">OK</button><button id="askNo">Cancel</button></div></div>`;
+  dlg.style.display = 'grid';
+  const inp = $('askIn');
+  inp.focus(); inp.select();
+  const ok = async () => {
+    const n = cleanName(inp.value);
+    if (!n) return;
+    if (filmList.some(f => f.name === n)) { toast('A film with that name already exists'); return; }
+    dlg.style.display = 'none';
+    await done(n);
+    refreshFilms();
+  };
+  inp.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') ok(); if (e.key === 'Escape') dlg.style.display = 'none'; };
+  $('askOk').onclick = ok;
+  $('askNo').onclick = () => { dlg.style.display = 'none'; };
+}
+function moveLocal(from, to) {  // per-film view memory follows a rename
+  try { for (const k of ['nav']) { const v = localStorage.getItem(`director:${k}:${from}`); if (v) localStorage.setItem(`director:${k}:${to}`, v); } } catch {}
+}
+async function renameFilm(from, to) {
+  if (from === S.film.name) await save();
+  const r = await (await fetch(`/api/film/rename?name=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, { method: 'POST' })).json();
+  if (r.error) { toast(r.error); return; }
+  moveLocal(from, to);
+  if (from === S.film.name) { S.film.name = to; $('filmName').textContent = to; try { localStorage.setItem('director:last', to); } catch {} }
+}
+async function filmAction(act, name) {
+  if (act === 'open') { if (name !== S.film.name) { await save(); await openFilm(name); } return; }
+  if (act === 'ren') return askName(`Rename "${name}"`, name, n => renameFilm(name, n));
+  if (act === 'dup') return askName(`Duplicate "${name}"`, `${name} copy`, async n => {
+    if (name === S.film.name) await save();
+    const r = await (await fetch(`/api/film/duplicate?name=${encodeURIComponent(name)}&to=${encodeURIComponent(n)}`, { method: 'POST' })).json();
+    if (r.error) { toast(r.error); return; }
+    moveLocal(name, n);
+    await openFilm(n);  // you now edit the copy; the original stays as it was
+    toast(`Now editing the copy "${n}". "${name}" is unchanged.`);
+  });
+  if (act === 'del') {
+    const dlg = $('dialog');
+    dlg.innerHTML = `<div class="dlg"><h3>Delete "${esc(name)}"?</h3><p class="note">It's moved to app_data/director/films/.trash, so it can still be recovered by hand.</p>
+      <div class="btns"><button id="delOk" class="danger">Delete</button><button id="delNo">Cancel</button></div></div>`;
+    dlg.style.display = 'grid';
+    $('delNo').onclick = () => { dlg.style.display = 'none'; };
+    $('delOk').onclick = async () => {
+      dlg.style.display = 'none';
+      await fetch(`/api/film/delete?name=${encodeURIComponent(name)}`, { method: 'POST' });
+      filmList = filmList.filter(f => f.name !== name);
+      if (name === S.film.name) {
+        S.dirty = false;
+        if (filmList[0]) await openFilm(filmList[0].name); else await newFilm('My first film');
+      }
+      refreshFilms();
+    };
+  }
+}
+on('rename', v => { const n = cleanName(v); if (n && n !== S.film.name) { if (filmList.some(f => f.name === n)) toast('A film with that name already exists'); else renameFilm(S.film.name, n).then(refreshFilms); } });
+on('saved', () => { if (!filmList.some(f => f.name === S.film.name)) refreshFilms(); });
+on('film', refreshFilms);
 $('filmBtn').onclick = async () => {
   const films = await (await fetch('/api/films')).json();
   const dlg = $('dialog');
@@ -412,7 +480,54 @@ function deleteSelection() {
 }
 
 // ---------- status, toasts ----------
-on('status', msg => { $('vpStatus').textContent = msg; $('vpStatus').style.display = msg ? 'block' : 'none'; });
+on('status', msg => {
+  $('vpStatus').textContent = msg; $('vpStatus').style.display = msg && !splashUp ? 'block' : 'none';
+  if (splashUp && msg) {
+    $('splashMsg').textContent = msg;
+    const pct = msg.match(/(\d+)%/);
+    $('splashBar').style.width = pct ? (+pct[1] * 0.85) + '%' : (/Preparing/.test(msg) ? '92%' : $('splashBar').style.width);
+  }
+});
+
+// ---------- loading screen: up until the film and its splats are ready ----------
+export const VERSION = '0.9';
+$('ver').textContent = 'v' + VERSION;
+$('splashVer').textContent = 'version ' + VERSION;
+let splashUp = true;
+function hideSplash() {
+  if (!splashUp) return;
+  splashUp = false;
+  $('splashBar').style.width = '100%';
+  setTimeout(() => $('splash').classList.add('gone'), 150);
+  setTimeout(() => $('splash').remove(), 600);
+}
+on('splatsLoaded', () => setTimeout(hideSplash, 250));
+
+// ---------- quick tooltips (the browser's own take over a second to appear) ----------
+const tip = $('tip');
+let tipEl = null, tipTimer = null;
+function tipFor(el) {
+  if (el.title) { el.dataset.tip = el.title; el.removeAttribute('title'); }  // keep the slow native one from showing too
+  return el.dataset.tip;
+}
+addEventListener('mouseover', e => {
+  const el = e.target.closest?.('[title], [data-tip]');
+  if (el === tipEl) return;
+  clearTimeout(tipTimer); tip.classList.remove('show'); tipEl = el;
+  if (!el || !tipFor(el)) return;
+  tipTimer = setTimeout(() => {
+    tip.textContent = el.dataset.tip;
+    const r = el.getBoundingClientRect();
+    tip.style.left = '0px'; tip.style.top = '0px'; tip.classList.add('show');
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    tip.style.left = Math.max(6, Math.min(innerWidth - w - 6, r.left + r.width / 2 - w / 2)) + 'px';
+    tip.style.top = (r.bottom + h + 10 < innerHeight ? r.bottom + 6 : r.top - h - 6) + 'px';
+  }, 150);
+});
+addEventListener('mousemove', e => {  // elements that change their hint as you move (the speed graph)
+  if (tipEl && tipEl.title && tipEl.contains(e.target)) { tip.textContent = tipFor(tipEl); }
+});
+addEventListener('pointerdown', () => { clearTimeout(tipTimer); tip.classList.remove('show'); tipEl = null; }, true);
 let toastTimer = null;
 on('toast', msg => {
   const t = $('toast');
@@ -428,7 +543,12 @@ const esc = s => String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;'
 // ---------- lifecycle: same rules as Splat Studio (closing the window stops the server) ----------
 const beat = () => fetch('/api/heartbeat', { method: 'POST' }).catch(() => {});
 beat(); setInterval(beat, 30000);
-addEventListener('pagehide', () => { navigator.sendBeacon('/api/bye'); });
+addEventListener('pagehide', () => {
+  // closing the window: write the film and where you were, so the next start opens right here
+  if (S.dirty) navigator.sendBeacon('/api/film?name=' + encodeURIComponent(S.film.name), new Blob([JSON.stringify(S.film)]));
+  try { if (navReady) localStorage.setItem('director:nav:' + S.film.name, JSON.stringify({ ...VP.navState(), playhead: S.playhead })); } catch {}
+  navigator.sendBeacon('/api/bye');
+});
 addEventListener('beforeunload', () => { if (S.dirty) save(); });
 
 // ---------- start ----------
@@ -437,7 +557,8 @@ addEventListener('beforeunload', () => { if (S.dirty) save(); });
   let last = null;
   try { last = localStorage.getItem('director:last'); } catch {}
   const pick = films.find(f => f.name === last) || films[0];
-  if (pick) { await openFilm(pick.name); return; }
+  setTimeout(hideSplash, 120000);  // never leave the loading screen up forever
+  if (pick) { await openFilm(pick.name); if (!S.film.splats.length) hideSplash(); return; }
   // first run: a film with the newest splat already in it
   await newFilm('My first film');
   const list = await (await fetch('/api/splats')).json();

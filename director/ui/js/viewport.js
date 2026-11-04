@@ -889,6 +889,15 @@ overlay.addEventListener('pointermove', e => {
   needRender = true;
 });
 
+// Clicking anywhere outside the view ends a line/curve in progress (a lone first point is dropped),
+// and the dashed preview line goes away when the mouse leaves the view.
+addEventListener('pointerdown', e => {
+  if (overlay.contains(e.target)) return;
+  if (drawing) { finishDrawing(); needRender = true; }
+  if (drawState) { drawState = null; needRender = true; }
+}, true);
+overlay.addEventListener('pointerleave', () => { if (drawState?.kind === 'rubber') { drawState = null; needRender = true; } });
+
 overlay.addEventListener('pointerup', e => {
   const m = pos(e);
   const d = drag;

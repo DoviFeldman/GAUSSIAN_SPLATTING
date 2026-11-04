@@ -11,6 +11,7 @@ export const S = {
   aimKey: null,                   // key id being aimed by mouse in camera view
   splatsInfo: [],                 // available splats from the server
   dirty: false,
+  exporting: false,
 };
 
 const handlers = {};

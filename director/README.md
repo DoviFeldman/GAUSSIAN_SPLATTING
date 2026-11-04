@@ -1,4 +1,4 @@
-# Splat Director
+# Splat Director (v0.9)
 
 Film your own camera moves through Gaussian splats: draw camera paths in 3D, aim the camera,
 speed-ramp it like Resolve's retime curves, cut shots together with video clips and music, and
@@ -63,6 +63,17 @@ and add a dissolve between them.
 
 **Export** renders every frame at full size with a complete depth sort (no flicker), mixes all sound, and writes
 `~/Movies/Splat Director/<film>.mp4` (H.264 + AAC).
+
+## Films
+
+The **Films** list at the top left holds every film. Click one to open it; hover it for ⧉ duplicate (makes a copy and
+opens the copy, the original stays as it was), ✎ rename and ✕ delete (moved to `app_data/director/films/.trash`).
+The app opens the last film you had open, with the same view and playhead.
+
+## Versions
+
+Local git tags: `director-v0.5` (first version), `director-v0.9` (bug fixes, loading screen, film list).
+To look at an old one: `git checkout director-v0.5 -- director` (and `git checkout HEAD -- director` to come back).
 
 ## Files
 

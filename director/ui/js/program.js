@@ -226,6 +226,7 @@ export async function exportFilm(onProgress) {
   const r = await (await fetch(`/api/render/start?name=${encodeURIComponent(film.name)}&fps=${fps}&w=${W}&h=${H}`, { method: 'POST' })).json();
   if (r.error) throw new Error(r.error);
   const job = r.job;
+  S.exporting = true;
   VP.beginExport(W, H);
   try {
     // the very first splat render after a resize can come out black: warm up on the first frame
@@ -250,6 +251,7 @@ export async function exportFilm(onProgress) {
     fetch(`/api/render/cancel?job=${job}`, { method: 'POST' });
     throw e;
   } finally {
+    S.exporting = false;
     VP.endExport();
     markDirty();
   }

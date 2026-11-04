@@ -1,4 +1,4 @@
-"""Splat Director: local web app for filming camera moves through Gaussian splats.
+"""Splat Director 0.9: local web app for filming camera moves through Gaussian splats.
 
     venv/bin/python -I director/director.py [--port 8771] [--no-browser]
 
@@ -110,7 +110,9 @@ def list_films():
     os.makedirs(FILMS, exist_ok=True)
     out = []
     for f in glob.glob(os.path.join(FILMS, "*.json")):
-        out.append({"name": os.path.splitext(os.path.basename(f))[0], "modified": os.path.getmtime(f)})
+        film = read_json(f, {})
+        out.append({"name": os.path.splitext(os.path.basename(f))[0], "modified": os.path.getmtime(f),
+                    "splats": [sp.get("name") for sp in film.get("splats", [])], "clips": len(film.get("clips", []))})
     out.sort(key=lambda s: -s["modified"])
     return out
 
@@ -309,6 +311,33 @@ class Handler(SimpleHTTPRequestHandler):
                     shutil.copyfile(f, f + ".bak")
                 write_json(f, film)
                 return self.send({"ok": True, "name": name})
+            if url.path in ("/api/film/duplicate", "/api/film/rename"):
+                src = os.path.join(FILMS, safe_name(q.get("name")) + ".json")
+                to = safe_name(q.get("to"))
+                dst = os.path.join(FILMS, to + ".json")
+                if not os.path.exists(src):
+                    return self.send({"error": "That film doesn't exist"}, 404)
+                if os.path.exists(dst):
+                    return self.send({"error": f"A film called {to} already exists"}, 409)
+                film = read_json(src)
+                film["name"] = to
+                write_json(dst, film)
+                if url.path.endswith("rename"):
+                    os.remove(src)
+                    if os.path.exists(src + ".bak"):
+                        os.replace(src + ".bak", dst + ".bak")
+                log(f"{url.path.rsplit('/', 1)[1]} film {q.get('name')} -> {to}")
+                return self.send({"ok": True, "name": to})
+            if url.path == "/api/film/delete":  # kept in films/.trash, in case it was a mistake
+                name = safe_name(q.get("name"))
+                trash = os.path.join(FILMS, ".trash")
+                os.makedirs(trash, exist_ok=True)
+                for ext in (".json", ".json.bak"):
+                    f = os.path.join(FILMS, name + ext)
+                    if os.path.exists(f):
+                        os.replace(f, os.path.join(trash, time.strftime("%Y%m%d-%H%M%S ") + name + ext))
+                log(f"deleted film {name} (moved to films/.trash)")
+                return self.send({"ok": True})
             if url.path == "/api/media":
                 name = safe_name(q.get("name"))
                 os.makedirs(MEDIA, exist_ok=True)
