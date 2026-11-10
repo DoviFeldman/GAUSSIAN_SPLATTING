@@ -99,6 +99,19 @@ That installs everything inside the folder and adds a **Splat Studio icon to you
 
 ---
 
+## 🎬 Splat Director: film your own camera moves (Mac)
+
+A second app, next to Splat Studio, for directing shots through a finished splat: draw camera paths in 3D
+(lines, curves, orbits), aim the camera at each key, speed-ramp it like a video editor's retime curve, cut shots
+together with clips and music on a timeline, and export an mp4.
+
+```bash
+director/install_app.sh        # once, after ./setup.sh: adds "Splat Director" to the Dock
+```
+It also needs `ffmpeg` (`brew install ffmpeg`). Full guide and keyboard shortcuts: **[director/README.md](director/README.md)**.
+
+---
+
 ## Can my computer make one?
 
 | Computer | Works? | Notes |
