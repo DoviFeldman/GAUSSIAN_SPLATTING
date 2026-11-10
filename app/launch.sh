@@ -56,8 +56,21 @@ for _ in $(seq 1 60); do
   sleep 0.5
 done
 open_window
+OPENED=$(date +%s)
 
-# the server exits by itself once the window is closed
+# The server exits by itself when the window says goodbye. Also stop it if the app window's process
+# exits (e.g. Cmd+Q), unless it exited within seconds: then it just handed off to an already-running
+# Chrome with the same profile, and the page's own goodbye covers closing.
+while kill -0 $SERVER 2>/dev/null; do
+  if [ -n "$WINDOW" ] && ! kill -0 "$WINDOW" 2>/dev/null; then
+    if [ $(( $(date +%s) - OPENED )) -gt 10 ]; then
+      echo "app window exited; stopping server"
+      curl -s -m 5 -X POST "${URL}api/quit" >/dev/null 2>&1
+    fi
+    WINDOW=""
+  fi
+  sleep 2
+done
 wait $SERVER
 echo "server exited"
 [ -n "$WINDOW" ] && kill $WINDOW 2>/dev/null   # close the app-window browser instance too

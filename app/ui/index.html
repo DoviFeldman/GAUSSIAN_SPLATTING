@@ -140,6 +140,8 @@
   .pv-note { position: absolute; right: 12px; bottom: 12px; background: #000b; border-radius: 10px; padding: 8px 12px; font-size: 13px;
              display: flex; gap: 10px; align-items: center; }
   .pv-note button { background: var(--accent); color: #1b1006; border-radius: 7px; padding: 4px 10px; font-weight: 700; font-size: 13px; }
+  .lost { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 20; max-width: min(640px, calc(100% - 32px));
+          background: #2a1416; border: 1px solid #5c2329; color: #ffc9c9; border-radius: 12px; padding: 12px 16px; font-size: 14px; }
   .modal { position: fixed; inset: 0; background: #000c; display: none; place-items: center; z-index: 10; }
   .modal.show { display: grid; }
   .modal video { max-width: 92vw; max-height: 86vh; border-radius: 12px; }
@@ -194,6 +196,7 @@
     </div>
   </div>
 </div>
+<div class="lost" id="lost" hidden><b>Splat Studio has stopped.</b> Open it again from the Dock. Finished videos and the queue are saved, and Resume continues where it left off.</div>
 <div class="modal" id="modal"><button class="close" onclick="closeVideo()">✕</button><video id="mvideo" controls autoplay loop></video></div>
 
 <script>
@@ -546,11 +549,15 @@ $('#modal').onclick = e => { if (e.target.id === 'modal') closeVideo(); };
 
 // ---------- lifecycle ----------
 // The server shuts down (and stops all GPU work; the queue waits for Resume) a few seconds after this window
-// closes (pagehide -> /api/bye), or ~2.5 min after heartbeats stop. A reload sends a fresh heartbeat in time.
+// closes (pagehide -> /api/bye; a reload sends a fresh heartbeat in time). Heartbeats only matter when nothing
+// is running: the browser may pause this page's timers while the screen is off, and that must not stop a job.
+let beatFails = 0;
 async function beat() {
-  try { await api('/api/heartbeat', { method: 'POST' }); } catch { }
+  try { await api('/api/heartbeat', { method: 'POST' }); beatFails = 0; $('#lost').hidden = true; }
+  catch { if (++beatFails >= 2) $('#lost').hidden = false; return; }
   loadQueue();
 }
+document.addEventListener('visibilitychange', () => { if (!document.hidden) beat(); });
 addEventListener('pagehide', () => navigator.sendBeacon('/api/bye'));
 addEventListener('beforeunload', e => {
   if (QUEUE && QUEUE.current) { e.preventDefault(); e.returnValue = ''; }

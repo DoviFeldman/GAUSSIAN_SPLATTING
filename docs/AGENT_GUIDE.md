@@ -12,7 +12,8 @@ Dock icon / app menu
         │                           ├─ scheduler     runs queue items[0] as app/pipeline.py projects/<id> (own process group);
         │                           │                when it exits, release_job confirms no tool is left, then the next starts
         │                           ├─ /api/queue    state; /api/queue/{start,pause,add,remove,move,quality} change it
-        │                           └─ watchdog: window closed (/api/bye, 8 s grace) or no heartbeat for 150 s ⇒ stop all jobs and exit
+        │                           └─ watchdog: window closed (/api/bye, 8 s grace) ⇒ stop all jobs and exit. Missing heartbeats
+        │                              never stop a running job; with nothing running, 1 h without one ⇒ exit
         └─ opens Chrome --app (separate profile app_data/chrome-profile) or the default browser;
            kills that window process after the server exits
 app/pipeline.py  (one job)
@@ -92,7 +93,10 @@ tail -20 app_data/studio.log
 - Frames per video: `TARGET_FRAMES` in `app/pipeline.py`.
 - Checkpoint/preview interval: `every` in `Job.stage_train`.
 - Estimates: `hardware.estimate`, `APPLE_GPU`, `TRAIN_PROFILE` (fraction of training time by step, measured on an M5).
-- Shutdown: `HEARTBEAT_TIMEOUT` (150 s; browsers throttle background-tab timers to ~1/min, so don't go below ~90) and `BYE_GRACE` in `app/studio.py`.
+- Shutdown: `IDLE_TIMEOUT` (1 h, env `SPLAT_IDLE_TIMEOUT`; only counts while nothing is running) and `BYE_GRACE` in `app/studio.py`.
+  **Don't make a running job depend on heartbeats.** On 2026-11-10 the display went to sleep mid-job, Chrome stopped the
+  page's timers, and the old 150 s heartbeat timeout killed a 30k-step training run. Closing is detected by the page's
+  goodbye (`pagehide` → `/api/bye`) and by `launch.sh` seeing the app window's process exit (it then calls `/api/quit`).
 
 ## Testing a change
 
@@ -105,8 +109,8 @@ curl -s -X POST "http://127.0.0.1:8770/api/queue/start"
 curl -s "http://127.0.0.1:8770/api/queue" | python3 -m json.tool
 curl -s "http://127.0.0.1:8770/api/status?id=<id>" | python3 -m json.tool
 ```
-Without a UI open, the server exits 3 minutes after starting (no heartbeat). Send
-`curl -X POST http://127.0.0.1:8770/api/heartbeat` every ~60 s to keep it alive while testing.
+Without a UI open, the server exits 3 minutes after starting if it never got a heartbeat. One
+`curl -X POST http://127.0.0.1:8770/api/heartbeat` is enough: after that it only quits when idle for `IDLE_TIMEOUT`.
 
 ## Measured reference (Apple M5, 16 GB, 30 s 1080p video, 127 frames)
 

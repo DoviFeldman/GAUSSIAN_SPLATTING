@@ -8,7 +8,9 @@ one is gone, so RAM and GPU memory start clean. The queue is saved to disk: afte
 pause, crash or power cut, finished videos are safe and the rest continue on Resume.
 
 It shuts itself down (killing every job and its GPU processes) when the UI
-window is closed (a few seconds; ~2.5 min if it vanished without saying goodbye), or on POST /api/quit.
+window is closed (it says goodbye, or launch.sh sees its process exit), or on POST /api/quit.
+A window that just goes quiet (screen off, minimized) never stops a running video; with nothing
+running, the app quits after an hour without a heartbeat.
 Everything is local; nothing is uploaded anywhere.
 """
 import argparse
@@ -37,7 +39,10 @@ DATA = os.path.join(ROOT, "app_data")
 QUALITY = {"quick": int(os.environ.get("SPLAT_QUICK_STEPS", 7000)), "full": 30000}  # env override: fast test runs
 QUEUE_FILE = os.path.join(DATA, "queue.json")
 MIN_FREE_DISK_GB = 4     # a job can use ~2 GB; pause instead of filling the disk
-HEARTBEAT_TIMEOUT = 150  # no heartbeat this long = UI gone. Long, because browsers slow timers in background tabs to ~1/min
+# Shutting down is driven by the window saying goodbye (/api/bye on close) or its process exiting (launch.sh),
+# never by a quiet window while a video is processing: with the screen off, Chrome can stop a page's timers
+# for minutes, and the old 150 s heartbeat timeout killed a running job that way (2026-11-10).
+IDLE_TIMEOUT = int(os.environ.get("SPLAT_IDLE_TIMEOUT", 3600))  # nothing running and no heartbeat this long = UI gone
 BYE_GRACE = 8            # after the window says goodbye (closed or reloading), wait this long for a new heartbeat
 STARTUP_GRACE = 180      # how long to wait for the UI to open the first time
 
@@ -337,18 +342,26 @@ def shutdown(reason):
 def watchdog():
     global last_beat
     tick = time.time()
+    idle_since = started  # when the work last stopped; the idle clock never runs during work
     while True:
         time.sleep(5)
         now = time.time()
         if now - tick > 30 and last_beat is not None:  # the computer was asleep: the window just hasn't had a chance
             last_beat = now
         tick = now
-        if last_beat is None and now - started > STARTUP_GRACE:
-            shutdown("UI never opened")
-        if last_beat is not None and now - last_beat > HEARTBEAT_TIMEOUT:
-            shutdown("no heartbeat from the UI")
         if last_bye is not None and now - last_bye > BYE_GRACE and (last_beat or 0) < last_bye:
-            shutdown("UI window closed")
+            shutdown("UI window closed")  # closing the window always stops everything, busy or not
+        with lock:
+            busy = current is not None or (not queue["paused"] and bool(queue["items"]))
+        if busy:  # a quiet window (screen off, minimized, throttled) must never stop the work
+            idle_since = None
+            continue
+        if idle_since is None:
+            idle_since = now
+        if last_beat is None and now - idle_since > STARTUP_GRACE:
+            shutdown("UI never opened")
+        if last_beat is not None and now - max(last_beat, idle_since) > IDLE_TIMEOUT:
+            shutdown(f"no heartbeat from the UI for {IDLE_TIMEOUT // 60} min and nothing running")
 
 
 class Handler(SimpleHTTPRequestHandler):
