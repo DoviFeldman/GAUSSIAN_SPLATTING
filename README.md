@@ -17,6 +17,7 @@ a 3D scene made of ~1 million tiny colored blobs. You can orbit it in a browser 
 **Option A: online, nothing to install**
 Open **https://dovifeldman.github.io/GAUSSIAN_SPLATTING/**
 (it downloads the 40 MB scene, so give it a few seconds). Drag to orbit, right-drag or two fingers to pan, scroll or pinch to zoom.
+also another one the house splat: **https://dovifeldman.github.io/House-Gaussian-Splat/**
 
 **Option B: on your own computer** (any Mac, Windows or Linux machine with a modern browser)
 1. Download this repo: the green **Code** button → **Download ZIP**, then unzip it.
